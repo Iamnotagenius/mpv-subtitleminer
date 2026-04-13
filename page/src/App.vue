@@ -4,6 +4,7 @@
   import { useToast } from './composables/useToast'
   import { useWebSocket } from './composables/useWebSocket'
   import * as anki from './services/ankiConnect'
+  import * as yomitan from './services/yomitan'
   import { isJsonObject, type JsonObject, type JsonValue } from './types/json'
   import type { AnkiSettings, ConnectionSettings, MediaSettings, Settings } from './types/settings'
   import { preserveHtmlTags } from './utils/htmlUtils'
@@ -199,6 +200,11 @@
     showSettings.value = false
   }
 
+  interface Word {
+    text: string
+    reading?: string
+  }
+
   interface SubtitleMessage {
     id: number
     subtitle: string
@@ -209,6 +215,7 @@
     audio?: string
     sourcePort: number
     uid: string
+    words?: ref<Word[]>
   }
 
   const messages = ref<SubtitleMessage[]>([])
@@ -266,6 +273,7 @@
         const msg = parseSubtitleMessage(d, port)
         if (!msg) return
         messages.value.push(msg)
+        tokenize(msg)
         if (messages.value.length > 200) messages.value.shift()
         void nextTick(() => bottomRef.value?.scrollIntoView({ block: 'end' }))
         return
@@ -354,7 +362,7 @@
     }
     const normalizedTimePos = time_pos ?? sub_start
     const uid = `${port}-${id}`
-    return { id, subtitle, time_pos: normalizedTimePos, sub_start, sub_end, sourcePort: port, uid }
+    return { id, subtitle, time_pos: normalizedTimePos, sub_start, sub_end, sourcePort: port, uid, words: ref(null) }
   }
 
   function parseMediaMessage(d: JsonObject): { id: number; data: string } | null {
@@ -872,6 +880,17 @@
       }, 15000)
     })
   }
+
+  const tokenize = async (
+    msg: SubtitleMessage
+  ): Promise<undefined> => {
+    try {
+      msg.words.value = await yomitan.tokenize(msg.subtitle, 5)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to tokenize')
+      msg.words = null
+    }
+  }
 </script>
 
 <template>
@@ -904,7 +923,10 @@
           :class="{ selected: isSelected(message.uid) }"
           @click="toggleSelection(message, index)"
         >
-          <span class="subtitle-text">{{ message.subtitle }}</span>
+          <span v-if="message.words" class="subtitle-text">
+            <span v-for="word in message.words" class="jp-word">{{ word.text }}<span v-if="word.reading" class="reading">{{ word.reading }}</span></span>
+          </span>
+          <span v-else class="subtitle-text">{{ message.subtitle }}</span>
           <div class="actions">
             <div class="thumb-action">
               <button
@@ -988,6 +1010,7 @@
               <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
             </svg>
           </button>
+          <span v-if="!message.words" class="hint">Tokenizing...</span>
         </li>
       </ul>
       <div ref="bottomRef" class="bottom-anchor" aria-hidden="true"></div>
@@ -1888,6 +1911,37 @@
 
   .toast-move {
     transition: transform 0.2s ease;
+  }
+
+  .jp-word {
+    position: relative;
+  }
+  .jp-word:hover:has(> .reading) {
+    color: #a7b4c7;
+  }
+
+  .jp-word .reading {
+    position: absolute;
+    bottom: 76%;
+    left: 50%;
+    transform: translateX(-50%) translateY(0);
+    font-size: 0.8em;
+    white-space: nowrap;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.38s cubic-bezier(0.23, 1, 0.32, 1), transform 0.42s cubic-bezier(0.2, 0.9, 0.3, 1.1), visibility 0.38s step-end;
+    transform: translateX(-50%) translateY(12px);
+    pointer-events: none;
+  }
+
+  .jp-word:hover .reading {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(-8px);   /* gentle lift + slide up */
+    transition: 
+      opacity 0.38s cubic-bezier(0.23, 1, 0.32, 1),
+    transform 0.45s cubic-bezier(0.2, 0.9, 0.4, 1),
+    visibility 0.38s step-start;  /* become visible instantly at start */
   }
 
   @media (max-width: 640px) {
