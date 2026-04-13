@@ -14,6 +14,7 @@
   import { useToast } from './composables/useToast'
   import { useWebSocket } from './composables/useWebSocket'
   import * as anki from './services/ankiConnect'
+  import * as yomitan from './services/yomitan'
   import { isJsonObject, type JsonObject, type JsonValue } from './types/json'
   import type {
     AnkiSettings,
@@ -369,6 +370,10 @@
   }
 
   type SubtitleTrack = 'primary' | 'secondary'
+  interface Word {
+    text: string
+    reading?: string
+  }
 
   interface SubtitleMessage {
     id: number
@@ -385,6 +390,7 @@
     audio?: string
     sourcePort: number
     uid: string
+    words?: ref<Word[]>
   }
 
   const messages = ref<SubtitleMessage[]>([])
@@ -901,6 +907,7 @@
         const msg = parseSubtitleMessage(d, port)
         if (!msg) return
         messages.value.push(msg)
+        tokenize(msg)
         if (messages.value.length > 200) messages.value.shift()
         // Follow the newest subtitle (works whether playback advanced or seeked), rather than
         // always jumping to the bottom of the time axis.
@@ -1003,6 +1010,7 @@
       name: asString(d.name) ?? '',
       sourcePort: port,
       uid,
+      words: ref(null),
     }
   }
 
@@ -1669,6 +1677,17 @@
         resolve(undefined)
       }, 15000)
     })
+  }
+
+  const tokenize = async (
+    msg: SubtitleMessage
+  ): Promise<undefined> => {
+    try {
+      msg.words.value = await yomitan.tokenize(msg.subtitle, 5)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to tokenize')
+      msg.words = null
+    }
   }
 </script>
 
@@ -3610,6 +3629,37 @@
 
   .toast-move {
     transition: transform 0.2s ease;
+  }
+
+  .jp-word {
+    position: relative;
+  }
+  .jp-word:hover:has(> .reading) {
+    color: #a7b4c7;
+  }
+
+  .jp-word .reading {
+    position: absolute;
+    bottom: 76%;
+    left: 50%;
+    transform: translateX(-50%) translateY(0);
+    font-size: 0.8em;
+    white-space: nowrap;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.38s cubic-bezier(0.23, 1, 0.32, 1), transform 0.42s cubic-bezier(0.2, 0.9, 0.3, 1.1), visibility 0.38s step-end;
+    transform: translateX(-50%) translateY(12px);
+    pointer-events: none;
+  }
+
+  .jp-word:hover .reading {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(-8px);   /* gentle lift + slide up */
+    transition: 
+      opacity 0.38s cubic-bezier(0.23, 1, 0.32, 1),
+    transform 0.45s cubic-bezier(0.2, 0.9, 0.4, 1),
+    visibility 0.38s step-start;  /* become visible instantly at start */
   }
 
   @media (max-width: 640px) {
