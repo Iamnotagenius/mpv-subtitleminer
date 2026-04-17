@@ -200,11 +200,6 @@
     showSettings.value = false
   }
 
-  interface Word {
-    text: string
-    reading?: string
-  }
-
   interface SubtitleMessage {
     id: number
     subtitle: string
@@ -215,10 +210,17 @@
     audio?: string
     sourcePort: number
     uid: string
-    words?: ref<Word[]>
+    words?: ref<yomitan.Word[]>
+  }
+
+  interface Definition {
+    text: string
+    hidden: boolean
+    entries: yomitan.DictEntry[]
   }
 
   const messages = ref<SubtitleMessage[]>([])
+  const currentDefinitions = ref<Definition | null>(null);
   const bottomRef = ref<HTMLElement | null>(null)
   const hoveredThumbnailUid = ref<string | null>(null)
   const loadingMedia = ref<Record<string, boolean>>({})
@@ -496,6 +498,19 @@
     } finally {
       loadingTargetCard.value = false
     }
+  }
+
+  const getDefinitions = async (word: Word) => {
+    const text = word.tokens.map(t => t.text).join("")
+    currentDefinitions.value = {
+      text,
+      hidden: false,
+      entries: await yomitan.definitions(text),
+    }
+  }
+
+  const dismissDefinitions = () => {
+    currentDefinitions.value.hidden = true
   }
 
   watch(
@@ -914,6 +929,19 @@
     </header>
 
     <main class="main">
+      <div class="defintions-popup" :class="{ hidden: !currentDefinitions || currentDefinitions.hidden }">
+        <div class="definitions-header" v-if="currentDefinitions">
+          <span class="definition-text">{{currentDefinitions.text}}</span>
+          <button class="btn close-btn" @click="dismissDefinitions">✕</button>
+        </div>
+        <div class="definition-entries" v-if="currentDefinitions">
+          <div class="definiton-entry" v-for="(entry, index) in currentDefinitions.entries">
+            <div class="definition-expression">{{entry.expression}}</div>
+            <div class="definition-content" v-html="entry.glossary" />
+            <hr v-if="index < currentDefinitions.entries.length - 1"></hr>
+          </div>
+        </div>
+      </div>
       <div v-if="messages.length === 0" class="empty">Waiting for subtitles...</div>
       <ul v-else class="messages">
         <li
@@ -924,7 +952,11 @@
           @click="toggleSelection(message, index)"
         >
           <span v-if="message.words" class="subtitle-text">
-            <span v-for="word in message.words" class="jp-word">{{ word.text }}<span v-if="word.reading" class="reading">{{ word.reading }}</span></span>
+            <span v-for="word in message.words" class="jp-word" @click.stop="getDefinitions(word)">
+              <span v-for="token in word.tokens" class="jp-token">
+              {{ token.text }}<span v-if="token.reading" class="reading">{{ token.reading }}</span>
+              </span>
+            </span>
           </span>
           <span v-else class="subtitle-text">{{ message.subtitle }}</span>
           <div class="actions">
@@ -1914,10 +1946,15 @@
   }
 
   .jp-word {
-    position: relative;
+    white-space: nowrap;
   }
-  .jp-word:hover:has(> .reading) {
+  .jp-word:hover {
     color: #a7b4c7;
+  }
+
+  .jp-word .jp-token {
+    position: relative;
+    white-space: nowrap;
   }
 
   .jp-word .reading {
@@ -1944,6 +1981,77 @@
     visibility 0.38s step-start;  /* become visible instantly at start */
   }
 
+  .defintions-popup {
+    position: fixed;
+    z-index: 1000;
+    top: 90px;
+    right: 20px;
+    width: 320px;
+    border-radius: 8px;
+    background: #1b2028;
+    color: #e9edf2;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+    transition: opacity 0.25s ease, visibility 0.25s ease, transform 0.2s ease;
+    transform: translateY(0);
+  }
+
+  .defintions-popup.hidden {
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease;
+    transform: translateY(-8px);
+    pointer-events: none;
+  }
+
+  .definitions-header {
+    background: #2c343f;
+    border-radius: 8px 8px 0 0;
+    padding: 10px;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .definition-text {
+    font-size: 1.4em;
+  }
+
+  .definition-entries {
+    overflow-y: auto;
+    max-height: 500px;
+  }
+
+  .definition-entries hr {
+    border: none;
+    background-color: #2c343f;
+    height: 1px;
+  }
+
+  .definition-expression {
+    font-size: 1.4em;
+    padding: 10px;
+  }
+
+  .definition-btn {
+    padding: 5px 10px;
+    background: #3e4552;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.8em;
+    color: #e9edf2;
+  }
+
+  .close-btn {
+    background: #ef4444;
+    font-size: 1.2em;
+    padding: 4px 8px;
+  }
+
+  .close-btn:hover {
+    background: #ef5358;
+  }
+
+
   @media (max-width: 640px) {
     .controls {
       width: 100%;
@@ -1964,4 +2072,28 @@
     margin-top: 0.5rem;
     text-align: left;
   }
+</style>
+
+<style>
+  span[data-sc-class='tag'] {
+    border-radius: 0.3em;
+    font-size: 0.8em;
+    font-weight: bold;
+    margin-right: 0.5em;
+    padding: 0.2em 0.3em;
+    vertical-align: text-bottom;
+    word-break: keep-all;
+  }
+
+  span[data-sc-content="part-of-speech-info"] {
+    background-color: #3168a7;
+  }
+  span[data-sc-content="misc-info"] {
+    background-color: #7e8898;
+  }
+  
+  .yomitan-glossary ol {
+    margin: 0;
+  }
+
 </style>
