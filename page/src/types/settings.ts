@@ -17,11 +17,15 @@ export interface MediaSettings {
 }
 
 export interface WordCardSettings {
+  deck: string
   noteType: string
   frontField: string
+  definitionField: string
   sentenceField: string
   secondaryField: string
   audioField: string
+  wordAudioField: string
+  wordReadingField: string
   imageField: string
   maxCardAgeMinutes: number
   tags: string[]
@@ -62,9 +66,15 @@ export interface DisplaySettings {
   primaryColumnFraction: number
 }
 
+export interface YomitanSettings {
+  enabled: boolean
+}
+
 export interface Settings {
   anki: AnkiSettings
   connection: ConnectionSettings
   media: MediaSettings
   display: DisplaySettings
+  yomitan: YomitanSettings
 }
+
