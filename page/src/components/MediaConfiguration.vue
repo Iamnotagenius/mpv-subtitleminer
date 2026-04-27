@@ -437,66 +437,6 @@ input[type='text'],
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
-
-  .advanced-toggle {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .toggle-label {
-    font-size: 0.85em;
-    color: #7e8898;
-  }
-
-  /* Switch styling */
-  .switch {
-    position: relative;
-    display: inline-block;
-    width: 34px;
-    height: 18px;
-  }
-
-  .switch input {
-    opacity: 0;
-    width: 0;
-    height: 0;
-  }
-
-  .slider {
-    position: absolute;
-    cursor: pointer;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: #1f252e;
-    transition: .3s;
-    border-radius: 34px;
-    border: 1px solid #2a303b;
-  }
-
-  .slider:before {
-    position: absolute;
-    content: "";
-    height: 12px;
-    width: 12px;
-    left: 2px;
-    bottom: 2px;
-    background-color: #a7b4c7;
-    transition: .3s;
-    border-radius: 50%;
-  }
-
-  input:checked + .slider {
-    background-color: #374151;
-    border-color: #4b5563;
-  }
-
-  input:checked + .slider:before {
-    transform: translateX(16px);
-    background-color: #3ddc97;
-  }
   
   .field-hint {
     color: #7e8898;

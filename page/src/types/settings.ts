@@ -17,10 +17,14 @@ export interface MediaSettings {
 }
 
 export interface AnkiSettings {
+  deck: string
   noteType: string
   frontField: string
+  definitionField: string
   sentenceField: string
   audioField: string
+  wordAudioField: string
+  wordReadingField: string
   imageField: string
   maxCardAgeMinutes: number
 }
@@ -30,8 +34,14 @@ export interface ConnectionSettings {
   ports: number[]
 }
 
+export interface YomitanSettings {
+  enabled: boolean
+}
+
 export interface Settings {
   anki: AnkiSettings
   connection: ConnectionSettings
   media: MediaSettings
+  yomitan: YomitanSettings
 }
+

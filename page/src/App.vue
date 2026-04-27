@@ -6,7 +6,7 @@
   import * as anki from './services/ankiConnect'
   import * as yomitan from './services/yomitan'
   import { isJsonObject, type JsonObject, type JsonValue } from './types/json'
-  import type { AnkiSettings, ConnectionSettings, MediaSettings, Settings } from './types/settings'
+  import type { AnkiSettings, ConnectionSettings, MediaSettings, YomitanSettings, Settings } from './types/settings'
   import { preserveHtmlTags } from './utils/htmlUtils'
 
   const DEFAULT_PORTS = [61777, 61778, 61779, 61780, 61781]
@@ -15,7 +15,19 @@
 
   const STORAGE_KEY = 'mpv_subtitle_tool_settings'
   const defaultSettings: Settings = {
-    anki: { noteType: '', frontField: '', sentenceField: '', audioField: '', imageField: '', maxCardAgeMinutes: 5 },
+    anki: {
+      deck: '',
+      noteType: '',
+      frontField: '',
+      definitionField: '',
+      sentenceField: '',
+      audioField: '',
+      wordAudioField: '',
+      wordReadingField: '',
+      imageField: '',
+      maxCardAgeMinutes: 5,
+    },
+    yomitan: { enabled: false },
     connection: { host: '127.0.0.1', ports: [...DEFAULT_PORTS] },
     media: {
       audioOffsetStart: 0.25,
@@ -45,6 +57,7 @@
           ...defaultSettings,
           ...parsed,
           anki: { ...defaultSettings.anki, ...parsed.anki },
+          yomitan: { ...defaultSettings.yomitan, ...parsed.yomitan },
           connection: { ...defaultSettings.connection, ...parsed.connection },
           media: { ...defaultSettings.media, ...parsed.media },
         }
@@ -79,6 +92,7 @@
   const connectionStatus = ref<ConnectionStatus>('untested')
   const ankiVersion = ref<number | null>(null)
   const connectionError = ref<string | null>(null)
+  const deckNames = ref<string[]>([])
   const modelsWithFields = ref<Record<string, string[]>>({})
   const loadingModels = ref(false)
   const modelsError = ref<string | null>(null)
@@ -86,6 +100,7 @@
   const localConnection = ref<ConnectionSettings>({ ...settings.value.connection })
   const localMedia = ref<MediaSettings>({ ...settings.value.media })
   const localPortInput = ref('')
+  const yomitanAPIEnabled = ref<bool>(settings.value.yomitan.enabled)
 
   const modelNames = computed(() => Object.keys(modelsWithFields.value).sort())
   const availableFields = computed(() => {
@@ -105,8 +120,12 @@
       localConnection.value = { ...settings.value.connection }
       localMedia.value = { ...settings.value.media }
       localPortInput.value = localConnection.value.ports.join(', ')
+      yomitanAPIEnabled.value = settings.value.yomitan.enabled
       if (connectionStatus.value === 'untested') {
         void testConnection()
+      }
+      if (yomitanAPIEnabled.value && yomitanServerVersionTestStatus.value === 'untested') {
+        void testYomitanConnection()
       }
     }
   })
@@ -125,6 +144,55 @@
     }
   }
 
+  const yomitanServerVersionTestStatus = ref<ConnectionStatus>('untested')
+  const yomitanVersionTestStatus = ref<ConnectionStatus>('untested')
+  const yomitanServerVersion = ref<number | null>(null)
+  const yomitanVersion = ref<string | null>(null)
+  const yomitanServerVersionError = ref<string | null>(null)
+  const yomitanVersionError = ref<string | null>(null)
+
+  watch(yomitanAPIEnabled, async (enabled) => {
+    if (enabled) {
+      testYomitanConnection()
+    }
+  })
+
+  function isTestingYomitanConnection(): bool {
+    return yomitanServerVersionTestStatus.value === 'testing' || yomitanVersionTestStatus === 'testing'
+  }
+
+  function testYomitanConnection() {
+    yomitanServerVersionTestStatus.value = 'testing'
+    yomitanVersionTestStatus.value = 'testing'
+    yomitanServerVersionError.value = null
+    yomitanVersionError.value = null
+    
+    const timeout = new Promise((_, reject) => setTimeout(reject, 3000, new Error("Request timeout")))
+
+    Promise.race([yomitan.getServerVersion(), timeout]).then(
+      v => {
+        yomitanServerVersionTestStatus.value = 'connected'
+        yomitanServerVersion.value = v
+      },
+      err => {
+        console.log('Error in yomitan')
+        yomitanServerVersionTestStatus.value = 'error'
+        yomitanServerVersionError.value = err instanceof Error ? err.message : 'Unknown error'
+      }
+    )
+
+    Promise.race([yomitan.getYomitanVersion(), timeout]).then(
+      v => {
+        yomitanVersionTestStatus.value = 'connected'
+        yomitanVersion.value = v
+      },
+      err => {
+        yomitanVersionTestStatus.value = 'error'
+        yomitanVersionError.value = err instanceof Error ? err.message : 'Unknown error'
+      }
+    )
+  }
+
   async function loadModels() {
     if (loadingModels.value) return
 
@@ -133,6 +201,7 @@
 
     try {
       modelsWithFields.value = await anki.getModelsWithFields()
+      deckNames.value = await anki.getDeckNames()
     } catch (err) {
       modelsError.value = err instanceof Error ? err.message : 'Failed to load models'
     } finally {
@@ -145,6 +214,7 @@
       ...localSettings.value,
       noteType: value,
       frontField: '',
+      definitionField: '',
       sentenceField: '',
       audioField: '',
       imageField: '',
@@ -182,6 +252,7 @@
     }
 
     settings.value.anki = { ...localSettings.value }
+    settings.value.yomitan = { enabled: yomitanAPIEnabled.value }
     settings.value.connection = { ...localConnection.value }
     settings.value.media = { ...localMedia.value }
     
@@ -275,7 +346,9 @@
         const msg = parseSubtitleMessage(d, port)
         if (!msg) return
         messages.value.push(msg)
-        tokenize(msg)
+        if (yomitanAPIEnabled) {
+          tokenize(msg)
+        }
         if (messages.value.length > 200) messages.value.shift()
         void nextTick(() => bottomRef.value?.scrollIntoView({ block: 'end' }))
         return
@@ -500,6 +573,15 @@
     }
   }
 
+  type ExpressionNoteStatus = 'loading' | 'notfound' | 'found' | 'adding' | 'error'
+  interface ExpressionNote {
+    status: ExpressionNoteStatus
+    noteId: number | null
+    error: string
+  }
+
+  const expressionNotes = ref<Record<string, ExpressionNote>>({})
+
   const getDefinitions = async (word: Word) => {
     const text = word.tokens.map(t => t.text).join("")
     currentDefinitions.value = {
@@ -507,6 +589,32 @@
       hidden: false,
     }
     currentDefinitions.value.entries = await yomitan.definitions(text)
+    const { deck, noteType, frontField } = settings.value.anki
+
+    const words = Array.from(new Set(currentDefinitions.value.entries.map(entry => entry.expression)))
+    words.forEach(word => expressionNotes.value[word] = {
+      status: 'loading',
+      noteId: null,
+    })
+    anki.findWordCards(deck, noteType, frontField, words).then(
+      ids => {
+        ids.forEach((id, index) => {
+          expressionNotes.value[words[index]] = {
+            status: id ? 'found' : 'notfound',
+            noteId: id,
+            error: '',
+          }
+        })
+      },
+      err => {
+        toast.error(err instanceof Error ? err.message : 'Failed to find note in Anki')
+        words.forEach(word => expressionNotes.value[word] = {
+          status: 'error',
+          noteId: null,
+          error: err,
+        })
+      }
+    )
   }
 
   const dismissDefinitions = () => {
@@ -651,24 +759,74 @@
     return `mpv_subtitleminer_${msgId}_${timestamp}.${ext.toLowerCase()}`
   }
 
+  const getFieldsFromSelection = async (): Promise<Record<string, string>> => {
+    const fieldUpdates: Record<string, string> = {}
+    const selectedMsgs = getSelectedMessages()
+    if (selectedMsgs.length === 0) return fieldUpdates
+    const { first, last } = getSelectionRange() ?? {}
+    if (!first || !last) return fieldUpdates
+
+    const { sentenceField, audioField, imageField } = settings.value.anki
+
+    if (sentenceField) {
+      const text = selectedMsgs.map((m) => m.subtitle).join(' ')
+      fieldUpdates[sentenceField] = text
+    }
+
+    if (audioField) {
+      if (selectedMsgs.length > 1) {
+        const selectionPort = first.sourcePort
+        const allSamePort = selectedMsgs.every((msg) => msg.sourcePort === selectionPort)
+        if (!allSamePort) {
+          throw new Error('Selected subtitles must come from the same connection for audio.')
+        }
+      }
+      let audioData =
+        selectedMsgs.length > 1
+          ? await requestAudioRange(first.id, last.id, first.sourcePort)
+              : first.audio || (await requestMediaFromServer(first, 'audio'))
+
+      if (audioData) {
+        const filename = generateMediaFilename(first.id, 'audio')
+        await anki.storeMediaFile(filename, audioData)
+        fieldUpdates[audioField] = `[sound:${filename}]`
+      }
+    }
+
+    if (imageField) {
+      let imageData = (selectedMsgs.length === 1) ? first.thumbnail : undefined
+
+      if (!imageData) {
+        imageData = await requestMediaFromServer(
+          first, 
+          'thumbnail', 
+          selectedMsgs.length > 1 ? last.id : undefined
+        )
+      }
+      if (imageData) {
+        const filename = generateMediaFilename(first.id, 'image')
+        await anki.storeMediaFile(filename, imageData)
+        fieldUpdates[imageField] = `<img src="${filename}">`
+      }
+    }
+    
+    return fieldUpdates
+  }
+
   const sendSelectionToAnki = async () => {
     const selectedMsgs = getSelectedMessages()
     if (!ankiConfigured.value || selectedMsgs.length === 0) return
 
-    const { sentenceField, audioField, imageField } = settings.value.anki
     const { first, last } = getSelectionRange() ?? {}
     if (!first || !last) return
 
+    const { sentenceField } = settings.value.anki
+
     const primaryKey = first.uid
-    const primaryId = first.id
     sendingToAnki.value[primaryKey] = true
     ankiError.value[primaryKey] = ''
 
     try {
-      if (!ankiConfigured.value) {
-        throw new Error('Anki settings are incomplete')
-      }
-
       const targetNote = await anki.getLastNote(settings.value.anki.noteType)
       if (!targetNote) {
         throw new Error('No target card found in Anki')
@@ -683,49 +841,10 @@
         }
       }
 
-      const fieldUpdates: Record<string, string> = {}
-
+      const fieldUpdates: Record<string, string> = await getFieldsFromSelection()
       if (sentenceField) {
-        const text = selectedMsgs.map((m) => m.subtitle).join(' ')
         const existingSentence = targetNote.fields[sentenceField]?.value ?? ''
-        fieldUpdates[sentenceField] = preserveHtmlTags(existingSentence, text)
-      }
-
-      if (audioField) {
-        if (selectedMsgs.length > 1) {
-          const selectionPort = first.sourcePort
-          const allSamePort = selectedMsgs.every((msg) => msg.sourcePort === selectionPort)
-          if (!allSamePort) {
-            throw new Error('Selected subtitles must come from the same connection for audio.')
-          }
-        }
-        let audioData =
-          selectedMsgs.length > 1
-            ? await requestAudioRange(first.id, last.id, first.sourcePort)
-                : first.audio || (await requestMediaFromServer(first, 'audio'))
-
-        if (audioData) {
-          const filename = generateMediaFilename(primaryId, 'audio')
-          await anki.storeMediaFile(filename, audioData)
-          fieldUpdates[audioField] = `[sound:${filename}]`
-        }
-      }
-
-      if (imageField) {
-        let imageData = (selectedMsgs.length === 1) ? first.thumbnail : undefined
-
-        if (!imageData) {
-          imageData = await requestMediaFromServer(
-            first, 
-            'thumbnail', 
-            selectedMsgs.length > 1 ? last.id : undefined
-          )
-        }
-        if (imageData) {
-          const filename = generateMediaFilename(primaryId, 'image')
-          await anki.storeMediaFile(filename, imageData)
-          fieldUpdates[imageField] = `<img src="${filename}">`
-        }
+        fieldUpdates[sentenceField] = preserveHtmlTags(existingSentence, fieldUpdates[sentenceField])
       }
 
       if (Object.keys(fieldUpdates).length > 0) {
@@ -750,6 +869,69 @@
     } catch (err) {
       ankiError.value[primaryKey] = err instanceof Error ? err.message : 'Unknown error'
       toast.error(err instanceof Error ? err.message : 'Failed to add to Anki')
+    } finally {
+      delete sendingToAnki.value[primaryKey]
+    }
+  }
+
+  const addNote = async (entry: yomitan.DictEntry) => {
+    expressionNotes.value[entry.expression].status = 'adding'
+
+    const { first, last } = getSelectionRange() ?? {}
+    if (!first || !last) return
+
+    const { deck, noteType, frontField, definitionField, wordReadingField, wordAudioField } = settings.value.anki
+
+    const primaryKey = first.uid
+    sendingToAnki.value[primaryKey] = true
+    ankiError.value[primaryKey] = ''
+
+    try {
+      const fields: Record<string, string> = await getFieldsFromSelection()
+
+      fields[frontField] = entry.expression
+      if (definitionField) {
+        fields[definitionField] = entry.glossary
+      }
+      if (wordReadingField) {
+        fields[wordReadingField] = entry.reading
+      }
+      if (wordAudioField) {
+        const wordAudio = await yomitan.audio(entry.expression)
+        fields[wordAudioField] = wordAudio.field
+        await anki.storeMediaFile(wordAudio.filename, wordAudio.content)
+      }
+
+      const newNoteId = await anki.addNote(deck, noteType, fields)
+      expressionNotes.value[entry.expression] = {
+        status: 'found',
+        noteId: newNoteId,
+        error: '',
+      }
+
+      ankiSuccess.value[primaryKey] = true
+      toast.success(`Added note for "${entry.expression}" to Anki`, {
+        duration: 5000,
+        action: {
+          label: 'Browse',
+          onClick: () => {
+            void anki.guiBrowse(`nid:${newNoteId}`)
+          },
+        },
+      })
+
+      setTimeout(() => {
+        delete ankiSuccess.value[primaryKey]
+        clearSelection()
+      }, 2000)
+    } catch (err) {
+      ankiError.value[primaryKey] = err instanceof Error ? err.message : 'Unknown error'
+      toast.error(err instanceof Error ? err.message : 'Failed to add to Anki')
+      expressionNotes.value[entry.expression] = {
+        status: 'error',
+        noteId: null,
+        error: err,
+      }
     } finally {
       delete sendingToAnki.value[primaryKey]
     }
@@ -906,6 +1088,8 @@
       msg.words = null
     }
   }
+
+
 </script>
 
 <template>
@@ -1029,7 +1213,7 @@
               <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
             </svg>
           </button>
-          <span v-if="!message.words" class="hint">Tokenizing...</span>
+          <span v-if="yomitanAPIEnabled && !message.words" class="hint">Tokenizing...</span>
         </li>
       </ul>
       <div ref="bottomRef" class="bottom-anchor" aria-hidden="true"></div>
@@ -1136,6 +1320,57 @@
 
             <section class="section">
               <div class="section-header">
+                <h3>Yomitan API</h3>
+                <button
+                  class="btn"
+                  :class="{ muted: isTestingYomitanConnection() }"
+                  :disabled="!yomitanAPIEnabled || isTestingYomitanConnection()"
+                  @click="testYomitanConnection"
+                >
+                  {{ isTestingYomitanConnection() ? 'Testing…' : 'Test connection' }}
+                </button>
+                <div class="advanced-toggle">
+                  <span class="toggle-label">Enable</span>
+                  <label class="switch">
+                    <input type="checkbox" v-model="yomitanAPIEnabled">
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+              <template v-if="yomitanAPIEnabled">
+                <div class="connection-row">
+                  <span>Native Messaging Component</span>
+                  <span v-if="yomitanServerVersionTestStatus === 'connected'" class="status-pill success"
+                    >✓ Connected (v{{ yomitanServerVersion }})</span
+                  >
+                  <span
+                    v-else-if="yomitanServerVersionTestStatus== 'error'"
+                    class="status-pill error"
+                    :title="yomitanServerVersionError ?? ''"
+                    >✗ {{ yomitanServerVersionError }}</span
+                  >
+                  <span v-else class="status-pill">Not tested</span>
+                </div>
+                <div class="connection-row">
+                  <span>Yomitan</span>
+                  <span v-if="yomitanVersionTestStatus === 'connected'" class="status-pill success"
+                    >✓ Connected (v{{ yomitanVersion }})</span
+                  >
+                  <span
+                    v-else-if="yomitanVersionTestStatus== 'error'"
+                    class="status-pill error"
+                    :title="yomitanVersionError ?? ''"
+                    >✗ {{ yomitanVersionError }}</span
+                  >
+                  <span v-else class="status-pill">Not tested</span>
+                </div>
+                <p class="hint">Yomitan API must be installed and reachable on port 19633.</p>
+              </template>
+            </section>
+
+
+            <section class="section">
+              <div class="section-header">
                 <h3>Card configuration</h3>
                 <span v-if="connectionStatus !== 'connected'" class="subtle"
                   >Connect first to load models</span
@@ -1146,6 +1381,19 @@
                 Connect to Anki to configure card settings.
               </div>
               <div v-else class="form-grid">
+                <label class="form-group">
+                  <span>Deck</span>
+                  <select
+                    :value="localSettings.deck"
+                    @change="(e) => localSettings.deck = (e.target as HTMLSelectElement).value"
+                  >
+                    <option value="">Select a deck…</option>
+                    <option v-for="deck in deckNames" :key="deck" :value="deck">
+                      {{ deck }}
+                    </option>
+                  </select>
+                </label>
+
                 <label class="form-group">
                   <span>Note type</span>
                   <select
@@ -1177,6 +1425,21 @@
                   </label>
 
                   <label class="form-group">
+                    <span>Definition field</span>
+                    <select
+                      :value="localSettings.definitionField"
+                      @change="
+                        (e) => onFieldChange('definitionField', (e.target as HTMLSelectElement).value)
+                      "
+                    >
+                      <option value="">Don't add</option>
+                      <option v-for="field in availableFields" :key="field" :value="field">
+                        {{ field }}
+                      </option>
+                    </select>
+                  </label>
+
+                  <label class="form-group">
                     <span>Sentence field</span>
                     <select
                       :value="localSettings.sentenceField"
@@ -1200,6 +1463,36 @@
                       "
                     >
                       <option value="">Don't update</option>
+                      <option v-for="field in availableFields" :key="field" :value="field">
+                        {{ field }}
+                      </option>
+                    </select>
+                  </label>
+
+                  <label class="form-group">
+                    <span>Word audio field</span>
+                    <select
+                      :value="localSettings.wordAudioField"
+                      @change="
+                        (e) => onFieldChange('wordAudioField', (e.target as HTMLSelectElement).value)
+                      "
+                    >
+                      <option value="">Don't add</option>
+                      <option v-for="field in availableFields" :key="field" :value="field">
+                        {{ field }}
+                      </option>
+                    </select>
+                  </label>
+
+                  <label class="form-group">
+                    <span>Word reading field</span>
+                    <select
+                      :value="localSettings.wordReadingField"
+                      @change="
+                        (e) => onFieldChange('wordReadingField', (e.target as HTMLSelectElement).value)
+                      "
+                    >
+                      <option value="">Don't add</option>
                       <option v-for="field in availableFields" :key="field" :value="field">
                         {{ field }}
                       </option>
@@ -1280,7 +1573,7 @@
     </Teleport>
 
     <Teleport to="body">
-      <div class="defintions-popup" :class="{ hidden: !currentDefinitions || currentDefinitions.hidden }">
+      <div class="defintions-popup" :class="{ hidden: !currentDefinitions || currentDefinitions.hidden || showSettings }">
         <div class="definitions-header" v-if="currentDefinitions">
           <span class="definition-text">{{currentDefinitions.text}}</span>
           <button class="btn close-btn" @click="dismissDefinitions">✕</button>
@@ -1292,6 +1585,22 @@
           <div class="definiton-entry" v-for="(entry, index) in currentDefinitions.entries">
             <div class="definition-expression">
               <span class="jp-word">{{entry.expression}}<span class="reading">{{entry.reading}}</span></span>
+              <button class="definition-btn loading-btn" v-if="expressionNotes[entry.expression].status === 'loading'" disabled>
+                <span class="loader"></span>
+              </button>
+              <button class="definition-btn error-btn" v-else-if="expressionNotes[entry.expression] === 'error'" disabled>
+               🗙 Anki is unavailable
+              </button>
+              <button class="definition-btn clear-btn"
+                v-else-if="expressionNotes[entry.expression].status === 'found' && expressionNotes[entry.expression].noteId"
+                @click="anki.guiBrowse(`nid:${expressionNotes[entry.expression].noteId}`)">
+                🔎 Browse note
+              </button>
+              <button class="definition-btn send-btn" v-else-if="expressionNotes[entry.expression].status === 'notfound'"
+                :disabled="selectedMessages.size === 0 || expressionNotes[entry.expression].status === 'adding'"
+                @click="addNote(entry)">
+                📝 Add to Anki
+              </button>
             </div>
             <div class="definition-content" v-html="entry.glossary"></div>
             <hr v-if="index < currentDefinitions.entries.length - 1"></hr>
@@ -1726,19 +2035,19 @@
     cursor: not-allowed;
   }
 
-  .selection-btn.send-btn {
+  .send-btn {
     background: #2d5a3d;
   }
 
-  .selection-btn.send-btn:hover {
+  .send-btn:hover {
     background: #38764c;
   }
 
-  .selection-btn.clear-btn {
+  .clear-btn {
     background: #343a45;
   }
 
-  .selection-btn.clear-btn:hover {
+  .clear-btn:hover {
     background: #3e4552;
   }
 
@@ -1818,6 +2127,7 @@
     align-items: center;
     gap: 10px;
     flex-wrap: wrap;
+    justify-content: space-between;
   }
 
   .status-pill {
@@ -1975,14 +2285,13 @@
     opacity: 0;
     visibility: hidden;
     transition: opacity 0.38s cubic-bezier(0.23, 1, 0.32, 1), transform 0.42s cubic-bezier(0.2, 0.9, 0.3, 1.1), visibility 0.38s step-end;
-    transform: translateX(-50%) translateY(12px);
     pointer-events: none;
   }
 
   .jp-word:hover .reading {
     opacity: 1;
     visibility: visible;
-    transform: translateX(-50%) translateY(-8px);   /* gentle lift + slide up */
+    transform: translateX(-50%) translateY(-5px);   /* gentle lift + slide up */
     transition: 
       opacity 0.38s cubic-bezier(0.23, 1, 0.32, 1),
     transform 0.45s cubic-bezier(0.2, 0.9, 0.4, 1),
@@ -2037,15 +2346,20 @@
     font-size: 1.5em;
   }
 
-  .loading .loader {
-    width: 40px;
-    height: 40px;
-    border: 5px solid #14171c;
+  .loader {
+    border-style: solid;
+    border-color: #14171c;
     border-bottom-color: #7e8898;
     border-radius: 50%;
     display: inline-block;
     box-sizing: border-box;
     animation: rotation 1s linear infinite;
+  }
+
+  .loading .loader {
+    width: 40px;
+    height: 40px;
+    border-width: 5px;
   }
 
   @keyframes rotation {
@@ -2065,8 +2379,13 @@
   }
 
   .definition-expression {
-    font-size: 1.4em;
     padding: 18px 15px 10px;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .definition-expression .jp-word {
+    font-size: 1.4em;
   }
 
   .definition-expression .reading {
@@ -2075,12 +2394,34 @@
 
   .definition-btn {
     padding: 5px 10px;
-    background: #3e4552;
     border: none;
     border-radius: 6px;
     cursor: pointer;
     font-size: 0.8em;
     color: #e9edf2;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .definition-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .definition-btn.loading-btn {
+    width: 110px;
+    background: #2c343f;
+  }
+
+  .definition-btn.error-btn {
+    background: #853236;
+  }
+
+  .loading-btn .loader {
+    width: 20px;
+    height: 20px;
+    border-width: 3px;
   }
 
   .close-btn {
@@ -2117,6 +2458,67 @@
 </style>
 
 <style>
+  .advanced-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .toggle-label {
+    font-size: 0.85em;
+    color: #7e8898;
+  }
+
+  /* Switch styling */
+  .switch {
+    position: relative;
+    display: inline-block;
+    width: 34px;
+    height: 18px;
+  }
+
+  .switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #1f252e;
+    transition: .3s;
+    border-radius: 34px;
+    border: 1px solid #2a303b;
+  }
+
+  .slider:before {
+    position: absolute;
+    content: "";
+    height: 12px;
+    width: 12px;
+    left: 2px;
+    bottom: 2px;
+    background-color: #a7b4c7;
+    transition: .3s;
+    border-radius: 50%;
+  }
+
+  input:checked + .slider {
+    background-color: #374151;
+    border-color: #4b5563;
+  }
+
+  input:checked + .slider:before {
+    transform: translateX(16px);
+    background-color: #3ddc97;
+  }
+
+  /* Glossary styling */
   span[data-sc-class='tag'] {
     border-radius: 0.3em;
     font-size: 0.8em;

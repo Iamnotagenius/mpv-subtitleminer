@@ -206,3 +206,38 @@ export async function getLastNote(modelName?: string): Promise<NoteInfo | null> 
 export async function guiBrowse(query: string): Promise<number[]> {
   return invoke<number[]>('guiBrowse', { query })
 }
+
+/**
+  * Get all deck names
+  */
+export async function getDeckNames(): Promise<string[]> {
+    return invoke<string[]>('deckNames')
+}
+
+export async function findWordCards(deckName: string, modelName: string, frontField: string, words: string[]): Promise<(number | null)[]> {
+    const actions: AnkiActionRequest[] = words.map(word => ({
+        action: 'findNotes',
+        version: API_VERSION,
+        params: {
+            query: `deck:"${deckName}" note:"${modelName}" "${frontField}:${word}"`,
+        },
+    }))
+
+    let results = await multiInvoke<number[]>(actions)
+    return results.map(result => result.result[0] ?? null)
+}
+
+export async function addNote(deckName: string, modelName: string, fields: Record<string, string>): Promise<number> {
+  return invoke<number>('addNote', {
+    note: {
+      deckName,
+      modelName,
+      fields,
+      options: {
+        allowDuplicate: false,
+        duplicateScope: 'deck',
+      },
+      tags: ['mpv-subtitleminer'],
+    },
+  })
+}
