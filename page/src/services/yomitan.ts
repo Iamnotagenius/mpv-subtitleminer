@@ -7,15 +7,15 @@ class YomitanError extends Error {
   }
 }
 
-interface TokenizeResponse {
+export interface TokenizeResponse {
     content: Token[][]
 }
 
-interface Word {
+export interface Word {
     tokens: Token[]
 }
 
-interface Token {
+export interface Token {
     text: string,
     reading?: string
 }
@@ -56,14 +56,14 @@ export async function tokenize(text: string, scanLength: number): Promise<Word[]
     return response[0]?.content.map(tokens => ({tokens})) ?? []
 }
 
-interface DictEntry {
-    glossary: HTMLElement
+export interface DictEntry {
+    glossary: string
     reading: string
     expression: string
     conjugation: string
 }
 
-interface AnkiFieldsResponse {
+export interface AnkiFieldsResponse {
     fields: DictEntry[]
 }
 
@@ -79,21 +79,21 @@ export async function definitions(text: string): Promise<DictEntry[]> {
     return response.fields
 }
 
-interface AudioEntry {
+export interface AudioEntry {
   audio: string
 }
 
-interface AudioMedia {
+export interface AudioMedia {
     content: string
     ankiFilename: string
 }
 
-interface AudioFieldResponse {
+export interface AudioFieldResponse {
   fields: AudioEntry[]
   audioMedia: AudioMedia[]
 }
 
-interface WordAudio {
+export interface WordAudio {
     field: string
     filename: string
     content: string
@@ -120,7 +120,7 @@ export async function audio(text: string): Promise<WordAudio | null> {
 }
 
 
-interface ServerVersionResponse {
+export interface ServerVersionResponse {
     version: number
 }
 
@@ -130,7 +130,7 @@ export async function getServerVersion(): Promise<number> {
     return response.version
 }
 
-interface YomitanVersionResponse {
+export interface YomitanVersionResponse {
     version: string
 }
 

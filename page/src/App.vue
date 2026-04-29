@@ -239,8 +239,8 @@
     }
   })
 
-  function isTestingYomitanConnection(): bool {
-    return yomitanServerVersionTestStatus.value === 'testing' || yomitanVersionTestStatus === 'testing'
+  function isTestingYomitanConnection(): boolean {
+    return yomitanServerVersionTestStatus.value === 'testing' || yomitanVersionTestStatus.value === 'testing'
   }
 
   function testYomitanConnection() {
@@ -253,6 +253,9 @@
 
     Promise.race([yomitan.getServerVersion(), timeout]).then(
       v => {
+        if (typeof v !== 'number') {
+          return
+        }
         yomitanServerVersionTestStatus.value = 'connected'
         yomitanServerVersion.value = v
       },
@@ -265,6 +268,9 @@
 
     Promise.race([yomitan.getYomitanVersion(), timeout]).then(
       v => {
+        if (typeof v !== 'string') {
+          return
+        }
         yomitanVersionTestStatus.value = 'connected'
         yomitanVersion.value = v
       },
@@ -454,13 +460,13 @@
     audio?: string
     sourcePort: number
     uid: string
-    words?: ref<yomitan.Word[]>
+    words: yomitan.Word[]
   }
 
   interface Definition {
     text: string
     hidden: boolean
-    entries: yomitan.DictEntry[]
+    entries?: yomitan.DictEntry[]
   }
 
   const messages = ref<SubtitleMessage[]>([])
@@ -1074,7 +1080,7 @@
     const normalizedTimePos = time_pos ?? sub_start
     const track: SubtitleTrack = d.track === 'secondary' ? 'secondary' : 'primary'
     const uid = `${port}-${id}`
-    return {
+    return reactive({
       id,
       subtitle,
       track,
@@ -1085,8 +1091,8 @@
       name: asString(d.name) ?? '',
       sourcePort: port,
       uid,
-      words: ref(null),
-    }
+      words: [],
+    })
   }
 
   function parseMediaMessage(d: JsonObject): { id: number; data: string } | null {
@@ -1213,32 +1219,58 @@
   }
 
   type ExpressionNoteStatus = 'loading' | 'notfound' | 'found' | 'adding' | 'error'
+  const GREEN_BUTTON_STATES = new Set<ExpressionNoteStatus>(['adding', 'notfound'])
   interface ExpressionNote {
     status: ExpressionNoteStatus
     noteId: number | null
     error: string
   }
 
+  const populateXRefs = (el: Element | ComponentPublicInstance | null) => {
+    if (!el) {
+      return
+    }
+    if (!(el instanceof Element)) {
+      return
+    }
+    el.querySelectorAll('div[data-sc-content="xref-content"] a').forEach(node => {
+      let text = ''
+      if (node.firstElementChild?.childNodes === undefined) {
+        return
+      }
+      for (const t of node.firstElementChild.childNodes) {
+        if (t.nodeType === Node.TEXT_NODE) {
+          text += t.nodeValue
+        } else if (t.nodeType === Node.ELEMENT_NODE && t.nodeName === 'RUBY') {
+          text += t.firstChild?.nodeValue
+        }
+      }
+      node.addEventListener('click', () => getDefinitions(text))
+    })
+  }
+
   const expressionNotes = ref<Record<string, ExpressionNote>>({})
 
-  const getDefinitions = async (word: Word) => {
-    const text = word.tokens.map(t => t.text).join("")
+  const getDefinitions = async (text: string) => {
     currentDefinitions.value = {
       text,
       hidden: false,
     }
     currentDefinitions.value.entries = await yomitan.definitions(text)
     const { deck, noteType, frontField } = settings.value.anki
-
+    if (currentDefinitions.value.entries === undefined) {
+      return
+    }
     const words = Array.from(new Set(currentDefinitions.value.entries.map(entry => entry.expression)))
     words.forEach(word => expressionNotes.value[word] = {
       status: 'loading',
       noteId: null,
+      error: '',
     })
     anki.findWordCards(deck, noteType, frontField, words).then(
       ids => {
         ids.forEach((id, index) => {
-          expressionNotes.value[words[index]] = {
+          expressionNotes.value[words[index]!!] = {
             status: id ? 'found' : 'notfound',
             noteId: id,
             error: '',
@@ -1257,7 +1289,9 @@
   }
 
   const dismissDefinitions = () => {
-    currentDefinitions.value.hidden = true
+    if (currentDefinitions.value) {
+        currentDefinitions.value.hidden = true
+    }
   }
 
   watch(
@@ -1717,7 +1751,7 @@
   }
 
   const addNote = async (entry: yomitan.DictEntry) => {
-    expressionNotes.value[entry.expression].status = 'adding'
+    expressionNotes.value[entry.expression]!!.status = 'adding'
 
     const { first, last } = getSelectionRange() ?? {}
     if (!first || !last) return
@@ -1740,8 +1774,12 @@
       }
       if (wordAudioField) {
         const wordAudio = await yomitan.audio(entry.expression)
-        fields[wordAudioField] = wordAudio.field
-        await anki.storeMediaFile(wordAudio.filename, wordAudio.content)
+        if (wordAudio) {
+          fields[wordAudioField] = wordAudio.field
+          await anki.storeMediaFile(wordAudio.filename, wordAudio.content)
+        } else {
+          toast.warning(`Unable to find pronounciation file for "${entry.expression}"`)
+        }
       }
 
       const newNoteId = await anki.addNote(deck, noteType, fields)
@@ -1767,12 +1805,13 @@
         clearSelection()
       }, 2000)
     } catch (err) {
-      ankiError.value[primaryKey] = err instanceof Error ? err.message : 'Unknown error'
+      const errMessage = err instanceof Error ? err.message : 'Unknown error'
+      ankiError.value[primaryKey] = errMessage
       toast.error(err instanceof Error ? err.message : 'Failed to add to Anki')
       expressionNotes.value[entry.expression] = {
         status: 'error',
         noteId: null,
-        error: err,
+        error: errMessage,
       }
     } finally {
       delete sendingToAnki.value[primaryKey]
@@ -1924,10 +1963,10 @@
     msg: SubtitleMessage
   ): Promise<undefined> => {
     try {
-      msg.words.value = await yomitan.tokenize(msg.subtitle, 5)
+      msg.words = await yomitan.tokenize(msg.subtitle, 5)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to tokenize')
-      msg.words = null
+      msg.words = ([])
     }
   }
 
@@ -1957,7 +1996,6 @@
 
     <main ref="mainRef" class="main">
       <div v-if="messages.length === 0" class="empty">Waiting for subtitles...</div>
-      <div
         v-else
         class="timeline"
         :class="{ 'hide-secondary': !settings.display.showSecondaryColumn }"
@@ -2027,7 +2065,6 @@
               type="button"
               @click="filterCollapsed = false"
             >
-              Style / Name filter
               <span v-if="anyFilterHidden" class="tl-filter-active">· active</span>
             </button>
             <div
@@ -2893,31 +2930,34 @@
           <button class="btn close-btn" @click="dismissDefinitions">✕</button>
         </div>
         <div class="definition-entries" v-if="currentDefinitions">
-          <div class="loading hint" v-if="!currentDefinitions.entries">
+          <div class="loading" v-if="!currentDefinitions.entries">
             <span class="loader"></span>
           </div>
           <div class="definiton-entry" v-for="(entry, index) in currentDefinitions.entries">
             <div class="definition-expression">
               <span class="jp-word">{{entry.expression}}<span class="reading">{{entry.reading}}</span></span>
-              <button class="definition-btn loading-btn" v-if="expressionNotes[entry.expression].status === 'loading'" disabled>
-                <span class="loader"></span>
-              </button>
-              <button class="definition-btn error-btn" v-else-if="expressionNotes[entry.expression] === 'error'" disabled>
-               🗙 Anki is unavailable
-              </button>
-              <button class="definition-btn clear-btn"
-                v-else-if="expressionNotes[entry.expression].status === 'found' && expressionNotes[entry.expression].noteId"
-                @click="anki.guiBrowse(`nid:${expressionNotes[entry.expression].noteId}`)">
-                🔎 Browse note
-              </button>
-              <button class="definition-btn send-btn" v-else-if="expressionNotes[entry.expression].status === 'notfound'"
-                :disabled="selectedMessages.size === 0 || expressionNotes[entry.expression].status === 'adding'"
-                @click="addNote(entry)">
-                📝 Add to Anki
-              </button>
+              <template v-for="note in [expressionNotes[entry.expression]].filter(n => n !== undefined)">
+                <button class="definition-btn loading-btn" v-if="note.status === 'loading'" disabled>
+                  <span class="loader"></span>
+                </button>
+                <button class="definition-btn error-btn" v-else-if="note.status === 'error'" disabled>
+                  🗙 Anki is unavailable
+                </button>
+                <button class="definition-btn clear-btn"
+                        v-else-if="note.status === 'found' && note.noteId"
+                        @click="anki.guiBrowse(`nid:${note.noteId}`)">
+                  🔎 Browse note
+                </button>
+                <button class="definition-btn send-btn"
+                        v-else-if="GREEN_BUTTON_STATES.has(note.status)"
+                        :disabled="selectedMessages.size === 0 || note.status === 'adding'"
+                        @click="addNote(entry)">
+                  📝 Add to Anki
+                </button>
+              </template>
             </div>
-            <div class="definition-content" v-html="entry.glossary"></div>
-            <hr v-if="index < currentDefinitions.entries.length - 1"></hr>
+            <div class="definition-content" v-html="entry.glossary" :ref="populateXRefs"></div>
+            <hr v-if="index < currentDefinitions.entries!!.length - 1"></hr>
           </div>
         </div>
       </div>
@@ -4122,7 +4162,7 @@
 
   .defintions-popup {
     position: fixed;
-    z-index: 1000;
+    z-index: 50;
     top: 90px;
     right: 20px;
     width: 320px;
@@ -4434,6 +4474,22 @@
 
   div[data-sc-content="xref"] {
     background-color: #1e2638;
+  }
+
+  span[data-sc-content="reference-label"] {
+    font-size: 1.1em;
+    font-weight: bold;
+    padding-bottom: 5px;
+  }
+
+  div[data-sc-content="xref-content"] a {
+    padding-left: 5px;
+    font-size: 1.0em;
+    color: #4c7fba;
+
+    :hover {
+      color: #7daee7;
+    }
   }
   
   .yomitan-glossary > ol {
