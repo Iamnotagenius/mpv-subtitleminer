@@ -1,12 +1,27 @@
 <script setup lang="ts">
   import MediaConfiguration from './components/MediaConfiguration.vue'
-  import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, reactive, type ComponentPublicInstance } from 'vue'
+  import {
+    computed,
+    nextTick,
+    onBeforeUnmount,
+    onMounted,
+    ref,
+    watch,
+    reactive,
+    type ComponentPublicInstance,
+  } from 'vue'
   import { useToast } from './composables/useToast'
   import { useWebSocket } from './composables/useWebSocket'
   import * as anki from './services/ankiConnect'
   import * as yomitan from './services/yomitan'
   import { isJsonObject, type JsonObject, type JsonValue } from './types/json'
-  import { type YomitanSettings, type AnkiSettings, type ConnectionSettings, type MediaSettings, type Settings } from './types/settings'
+  import {
+    type YomitanSettings,
+    type AnkiSettings,
+    type ConnectionSettings,
+    type MediaSettings,
+    type Settings,
+  } from './types/settings'
   import { preserveHtmlTags } from './utils/htmlUtils'
 
   const DEFAULT_PORTS = [61777, 61778, 61779, 61780, 61781]
@@ -105,6 +120,7 @@
   const localMedia = ref<MediaSettings>({ ...settings.value.media })
   const localPortInput = ref('')
   const yomitanSettings = ref<YomitanSettings>({ ...settings.value.yomitan })
+
   const yomitanAPIEnabled = computed(() => settings.value.yomitan.enabled)
 
   const modelNames = computed(() => Object.keys(modelsWithFields.value).sort())
@@ -163,7 +179,10 @@
   })
 
   function isTestingYomitanConnection(): boolean {
-    return yomitanServerVersionTestStatus.value === 'testing' || yomitanVersionTestStatus.value === 'testing'
+    return (
+      yomitanServerVersionTestStatus.value === 'testing' ||
+      yomitanVersionTestStatus.value === 'testing'
+    )
   }
 
   function testYomitanConnection() {
@@ -171,36 +190,38 @@
     yomitanVersionTestStatus.value = 'testing'
     yomitanServerVersionError.value = null
     yomitanVersionError.value = null
-    
-    const timeout = new Promise((_, reject) => setTimeout(reject, 3000, new Error("Request timeout")))
+
+    const timeout = new Promise((_, reject) =>
+      setTimeout(reject, 3000, new Error('Request timeout')),
+    )
 
     Promise.race([yomitan.getServerVersion(), timeout]).then(
-      v => {
+      (v) => {
         if (typeof v !== 'number') {
           return
         }
         yomitanServerVersionTestStatus.value = 'connected'
         yomitanServerVersion.value = v
       },
-      err => {
+      (err) => {
         console.log('Error in yomitan')
         yomitanServerVersionTestStatus.value = 'error'
         yomitanServerVersionError.value = err instanceof Error ? err.message : 'Unknown error'
-      }
+      },
     )
 
     Promise.race([yomitan.getYomitanVersion(), timeout]).then(
-      v => {
+      (v) => {
         if (typeof v !== 'string') {
           return
         }
         yomitanVersionTestStatus.value = 'connected'
         yomitanVersion.value = v
       },
-      err => {
+      (err) => {
         yomitanVersionTestStatus.value = 'error'
         yomitanVersionError.value = err instanceof Error ? err.message : 'Unknown error'
-      }
+      },
     )
   }
 
@@ -273,7 +294,7 @@
     settings.value.yomitan = { ...yomitanSettings.value }
     settings.value.connection = { ...localConnection.value }
     settings.value.media = { ...localMedia.value }
-    
+
     if (mediaSettingsChanged) {
       for (const msg of messages.value) {
         msg.audio = undefined
@@ -309,7 +330,7 @@
   }
 
   const messages = ref<SubtitleMessage[]>([])
-  const currentDefinitions = ref<Definition | null>(null);
+  const currentDefinitions = ref<Definition | null>(null)
   const bottomRef = ref<HTMLElement | null>(null)
   const hoveredThumbnailUid = ref<string | null>(null)
   const loadingMedia = ref<Record<string, boolean>>({})
@@ -366,11 +387,11 @@
         messages.value.push(msg)
         if (yomitanAPIEnabled.value) {
           tokenize(msg).then(
-            words => msg.words = words,
-            err => {
+            (words) => (msg.words = words),
+            (err) => {
               toast.error(err instanceof Error ? err.message : 'Failed to tokenize')
-              msg.words = ([])
-            }
+              msg.words = []
+            },
           )
         }
         if (messages.value.length > 200) messages.value.shift()
@@ -621,7 +642,7 @@
     if (!(el instanceof Element)) {
       return
     }
-    el.querySelectorAll('div[data-sc-content="xref-content"] a').forEach(node => {
+    el.querySelectorAll('div[data-sc-content="xref-content"] a').forEach((node) => {
       let text = ''
       if (node.firstElementChild?.childNodes === undefined) {
         return
@@ -633,7 +654,7 @@
           text += t.firstChild?.nodeValue
         }
       }
-      node.addEventListener('click', () => void getDefinitions(text) )
+      node.addEventListener('click', () => void getDefinitions(text))
     })
   }
 
@@ -645,7 +666,10 @@
       hidden: false,
     }
     try {
-      currentDefinitions.value.entries = await yomitan.definitions(text, settings.value.yomitan.maxEntries)
+      currentDefinitions.value.entries = await yomitan.definitions(
+        text,
+        settings.value.yomitan.maxEntries,
+      )
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to find note in Anki')
     }
@@ -657,27 +681,42 @@
 
   const findExpressionNotes = async (entries: yomitan.DictEntry[]) => {
     const { deck, noteType, frontField } = settings.value.anki
-    const words = Array.from(new Set(entries.map(entry => entry.expression)))
-    expressionNotes.value = Object.fromEntries(words.map(word => [word, {
-      status: 'loading',
-      noteId: null,
-      error: null,
-    }]))
+    const words = Array.from(new Set(entries.map((entry) => entry.expression)))
+    expressionNotes.value = Object.fromEntries(
+      words.map((word) => [
+        word,
+        {
+          status: 'loading',
+          noteId: null,
+          error: null,
+        },
+      ]),
+    )
     try {
       const ids = await anki.findWordCards(deck, noteType, frontField, words)
-      expressionNotes.value = Object.fromEntries(Object.entries(ids).map(([word, result]) => [word, {
-        status: result.error ? 'error' : (result.id ? 'found' : 'notfound'),
-        noteId: result.id,
-        error: result.error,
-      }]))
+      expressionNotes.value = Object.fromEntries(
+        Object.entries(ids).map(([word, result]) => [
+          word,
+          {
+            status: result.error ? 'error' : result.id ? 'found' : 'notfound',
+            noteId: result.id,
+            error: result.error,
+          },
+        ]),
+      )
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to find note in Anki'
       toast.error(msg)
-      expressionNotes.value = Object.fromEntries(words.map(word => [word, {
-        status: 'error',
-        noteId: null,
-        error: msg,
-      }]))
+      expressionNotes.value = Object.fromEntries(
+        words.map((word) => [
+          word,
+          {
+            status: 'error',
+            noteId: null,
+            error: msg,
+          },
+        ]),
+      )
     }
   }
 
@@ -702,9 +741,7 @@
         format: media.audioAdvanced ? media.audioAdvancedExtension : media.audioFormat,
         quality: media.audioQuality,
         filters: media.audioFilters,
-        advanced_args: media.audioAdvanced
-          ? media.audioAdvancedArgs
-          : null,
+        advanced_args: media.audioAdvanced ? media.audioAdvancedArgs : null,
       },
     }
   }
@@ -717,9 +754,7 @@
         quality: media.imageQuality,
         is_animated: media.imageAnimated,
         size: media.imageSize,
-        advanced_args: media.imageAdvanced
-          ? media.imageAdvancedArgs
-          : null,
+        advanced_args: media.imageAdvanced ? media.imageAdvancedArgs : null,
       },
     }
   }
@@ -850,7 +885,7 @@
       let audioData =
         selectedMsgs.length > 1
           ? await requestAudioRange(first.id, last.id, first.sourcePort)
-              : first.audio || (await requestMediaFromServer(first, 'audio'))
+          : first.audio || (await requestMediaFromServer(first, 'audio'))
 
       if (audioData) {
         const filename = generateMediaFilename(first.id, 'audio')
@@ -860,13 +895,13 @@
     }
 
     if (imageField) {
-      let imageData = (selectedMsgs.length === 1) ? first.thumbnail : undefined
+      let imageData = selectedMsgs.length === 1 ? first.thumbnail : undefined
 
       if (!imageData) {
         imageData = await requestMediaFromServer(
-          first, 
-          'thumbnail', 
-          selectedMsgs.length > 1 ? last.id : undefined
+          first,
+          'thumbnail',
+          selectedMsgs.length > 1 ? last.id : undefined,
         )
       }
       if (imageData) {
@@ -875,7 +910,7 @@
         fieldUpdates[imageField] = `<img src="${filename}">`
       }
     }
-    
+
     return fieldUpdates
   }
 
@@ -903,14 +938,19 @@
         const thresholdMs = maxAgeMinutes * 60000
 
         if (Date.now() - targetNote.noteId > thresholdMs) {
-          throw new Error(`Cannot add to card: The latest card is too old (> ${maxAgeMinutes} minutes).`)
+          throw new Error(
+            `Cannot add to card: The latest card is too old (> ${maxAgeMinutes} minutes).`,
+          )
         }
       }
 
       const fieldUpdates: Record<string, string> = await getFieldsFromSelection()
       if (sentenceField) {
         const existingSentence = targetNote.fields[sentenceField]?.value ?? ''
-        fieldUpdates[sentenceField] = preserveHtmlTags(existingSentence, fieldUpdates[sentenceField]!!)
+        fieldUpdates[sentenceField] = preserveHtmlTags(
+          existingSentence,
+          fieldUpdates[sentenceField]!!,
+        )
       }
 
       if (Object.keys(fieldUpdates).length > 0) {
@@ -946,14 +986,15 @@
     const { first, last } = getSelectionRange() ?? {}
     if (!first || !last) return
 
-    const { deck, noteType, frontField, definitionField, wordReadingField, wordAudioField } = settings.value.anki
+    const { deck, noteType, frontField, definitionField, wordReadingField, wordAudioField } =
+      settings.value.anki
 
     const primaryKey = first.uid
     sendingToAnki.value[primaryKey] = true
     ankiError.value[primaryKey] = ''
 
     try {
-      let toastId = toast.info('Requesting media from video...', {duration: 2000})
+      let toastId = toast.info('Requesting media from video...', { duration: 2000 })
       const fields: Record<string, string> = await getFieldsFromSelection()
       dismissToast(toastId)
 
@@ -965,15 +1006,12 @@
         fields[wordReadingField] = entry.reading
       }
       if (wordAudioField) {
-        const toastId = toast.info('Requesting audio from yomitan...', {duration: 5000})
+        const toastId = toast.info('Requesting audio from yomitan...', { duration: 5000 })
         const wordAudio = await Promise.race([
-            yomitan.audio(entry.expression),
-            new Promise<null>((resolve) => {
-              setTimeout(
-                () => resolve(null),
-                5000,
-              )
-            }),
+          yomitan.audio(entry.expression),
+          new Promise<null>((resolve) => {
+            setTimeout(() => resolve(null), 5000)
+          }),
         ])
         if (wordAudio) {
           fields[wordAudioField] = wordAudio.field
@@ -984,7 +1022,7 @@
         dismissToast(toastId)
       }
 
-      toastId = toast.info('Adding the note...', {duration: 5000})
+      toastId = toast.info('Adding the note...', { duration: 5000 })
       const newNoteId = await anki.addNote(deck, noteType, fields)
       dismissToast(toastId)
       expressionNotes.value[entry.expression] = {
@@ -1062,7 +1100,7 @@
         ...(endId ? { end_id: endId } : {}),
         ...(type === 'thumbnail' ? getImageParams() : getAudioParams()),
       }
-      
+
       if (!sendToPort(payload, msg.sourcePort)) {
         delete loadingMedia.value[key]
         resolve(undefined)
@@ -1163,13 +1201,9 @@
     })
   }
 
-  const tokenize = async (
-    msg: SubtitleMessage
-  ): Promise<yomitan.Word[]> => {
-    return msg.words = await yomitan.tokenize(msg.subtitle, settings.value.yomitan.scanLength)
+  const tokenize = async (msg: SubtitleMessage): Promise<yomitan.Word[]> => {
+    return (msg.words = await yomitan.tokenize(msg.subtitle, settings.value.yomitan.scanLength))
   }
-
-
 </script>
 
 <template>
@@ -1207,14 +1241,11 @@
               v-for="(word, index) in message.words"
               :key="index"
               class="jp-word"
-              @click.stop="getDefinitions(word.tokens.map(t => t.text).join(''))"
+              @click.stop="getDefinitions(word.tokens.map((t) => t.text).join(''))"
             >
-              <span
-                v-for="(token, index) in word.tokens"
-                :key="index"
-                class="jp-token"
-              >
-              {{ token.text }}<span v-if="token.reading" class="reading">{{ token.reading }}</span>
+              <span v-for="(token, index) in word.tokens" :key="index" class="jp-token">
+                {{ token.text
+                }}<span v-if="token.reading" class="reading">{{ token.reading }}</span>
               </span>
             </span>
           </span>
@@ -1256,7 +1287,10 @@
                 v-if="hoveredThumbnailUid === message.uid && message.thumbnail"
                 class="thumb-preview"
               >
-                <img :src="`data:image/${settings.media.imageFormat};base64,${message.thumbnail}`" alt="Thumbnail" />
+                <img
+                  :src="`data:image/${settings.media.imageFormat};base64,${message.thumbnail}`"
+                  alt="Thumbnail"
+                />
               </div>
             </div>
             <button
@@ -1302,7 +1336,9 @@
               <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
             </svg>
           </button>
-          <span v-if="yomitanAPIEnabled && message.words.length === 0" class="hint">Tokenizing...</span>
+          <span v-if="yomitanAPIEnabled && message.words.length === 0" class="hint"
+            >Tokenizing...</span
+          >
         </li>
       </ul>
       <div ref="bottomRef" class="bottom-anchor" aria-hidden="true"></div>
@@ -1361,11 +1397,7 @@
               <div class="form-grid">
                 <label class="form-group">
                   <span>Host IP</span>
-                  <input
-                    v-model="localConnection.host"
-                    type="text"
-                    placeholder="127.0.0.1"
-                  />
+                  <input v-model="localConnection.host" type="text" placeholder="127.0.0.1" />
                 </label>
                 <label class="form-group">
                   <span>Ports (comma separated)</span>
@@ -1421,82 +1453,99 @@
                 <div class="advanced-toggle">
                   <span class="toggle-label">Enable</span>
                   <label class="switch">
-                    <input type="checkbox" v-model="yomitanAPIEnabled">
+                    <input type="checkbox" v-model="yomitanSettings.enabled" />
                     <span class="slider"></span>
                   </label>
                 </div>
               </div>
 
-              <div class="connection-row">
-                <span>Native Messaging Component</span>
-                <span v-if="yomitanServerVersionTestStatus === 'connected'" class="status-pill success"
-                  >✓ Connected (v{{ yomitanServerVersion }})</span
-                >
-                <span
-                  v-else-if="yomitanServerVersionTestStatus== 'error'"
-                  class="status-pill error"
-                  :title="yomitanServerVersionError ?? ''"
-                  >✗ {{ yomitanServerVersionError }}</span
-                >
-                <span v-else class="status-pill">Not tested</span>
-              </div>
-                  <div class="connection-row">
-                    <span>Yomitan</span>
-                    <span v-if="yomitanVersionTestStatus === 'connected'" class="status-pill success"
-                      >✓ Connected (v{{ yomitanVersion }})</span
+              <template v-if="yomitanAPIEnabled">
+                <div class="connection-row">
+                  <span>Native Messaging Component</span>
+                  <span
+                    v-if="yomitanServerVersionTestStatus === 'connected'"
+                    class="status-pill success"
+                    >✓ Connected (v{{ yomitanServerVersion }})</span
+                  >
+                  <span
+                    v-else-if="yomitanServerVersionTestStatus == 'error'"
+                    class="status-pill error"
+                    :title="yomitanServerVersionError ?? ''"
+                    >✗ {{ yomitanServerVersionError }}</span
+                  >
+                  <span v-else class="status-pill">Not tested</span>
+                </div>
+                <div class="connection-row">
+                  <span>Yomitan</span>
+                  <span v-if="yomitanVersionTestStatus === 'connected'" class="status-pill success"
+                    >✓ Connected (v{{ yomitanVersion }})</span
+                  >
+                  <span
+                    v-else-if="yomitanVersionTestStatus == 'error'"
+                    class="status-pill error"
+                    :title="yomitanVersionError ?? ''"
+                    >✗ {{ yomitanVersionError }}</span
+                  >
+                  <span v-else class="status-pill">Not tested</span>
+                </div>
+                <div class="form-grid">
+                  <label class="form-group">
+                    <span>Text scan length</span>
+                    <div class="input-group">
+                      <input
+                        type="number"
+                        :min="1"
+                        :value="yomitanSettings.scanLength"
+                        @input="
+                          (e) => onYomitanChange('scanLength', (e.target as HTMLInputElement).value)
+                        "
+                      />
+                      <button
+                        class="btn-reset"
+                        :class="{
+                          visible:
+                            yomitanSettings.scanLength !== defaultSettings.yomitan.scanLength,
+                        }"
+                        :title="`Reset to default (${defaultSettings.yomitan.scanLength})`"
+                        @click="yomitanSettings.scanLength = defaultSettings.yomitan.scanLength"
+                      >
+                        ↺
+                      </button>
+                    </div>
+                    <small class="field-hint"
+                      >Change how many characters are read when scanning for terms.</small
                     >
-                    <span
-                      v-else-if="yomitanVersionTestStatus== 'error'"
-                      class="status-pill error"
-                      :title="yomitanVersionError ?? ''"
-                      >✗ {{ yomitanVersionError }}</span
+                  </label>
+                  <label class="form-group">
+                    <span>Maximum number of results</span>
+                    <div class="input-group">
+                      <input
+                        type="number"
+                        :min="1"
+                        :value="yomitanSettings.maxEntries"
+                        @input="
+                          (e) => onYomitanChange('maxEntries', (e.target as HTMLInputElement).value)
+                        "
+                      />
+                      <button
+                        class="btn-reset"
+                        :class="{
+                          visible:
+                            yomitanSettings.maxEntries !== defaultSettings.yomitan.maxEntries,
+                        }"
+                        :title="`Reset to default (${defaultSettings.yomitan.maxEntries})`"
+                        @click="yomitanSettings.maxEntries = defaultSettings.yomitan.maxEntries"
+                      >
+                        ↺
+                      </button>
+                    </div>
+                    <small class="field-hint"
+                      >Adjust the maximum number of results shown for lookups.</small
                     >
-                    <span v-else class="status-pill">Not tested</span>
-                  </div>
-                      <div class="form-grid">
-                        <label class="form-group">
-                          <span>Text scan length</span>
-                          <div class="input-group">
-                            <input
-                            type="number"
-                            :min="1"
-                            :value="yomitanSettings.scanLength"
-                            @input="e => onYomitanChange('scanLength', (e.target as HTMLInputElement).value)"
-                            />
-                            <button 
-                              class="btn-reset" 
-                              :class="{ visible: yomitanSettings.scanLength !== defaultSettings.yomitan.scanLength }"
-                              :title="`Reset to default (${defaultSettings.yomitan.scanLength})`"
-                              @click="yomitanSettings.scanLength = defaultSettings.yomitan.scanLength"
-                              >
-                              ↺
-                            </button>
-                          </div>
-                          <small class="field-hint">Change how many characters are read when scanning for terms.</small>
-                        </label>
-                        <label class="form-group">
-                          <span>Maximum number of results</span>
-                          <div class="input-group">
-                            <input
-                            type="number"
-                            :min="1"
-                            :value="yomitanSettings.maxEntries"
-                            @input="e => onYomitanChange('maxEntries', (e.target as HTMLInputElement).value)"
-                            />
-                            <button 
-                              class="btn-reset" 
-                              :class="{ visible: yomitanSettings.maxEntries !== defaultSettings.yomitan.maxEntries }"
-                              :title="`Reset to default (${defaultSettings.yomitan.maxEntries})`"
-                              @click="yomitanSettings.maxEntries = defaultSettings.yomitan.maxEntries"
-                              >
-                              ↺
-                            </button>
-                          </div>
-                          <small class="field-hint">Adjust the maximum number of results shown for lookups.</small>
-                        </label>
-                      </div>
-                      <p class="hint">Yomitan API must be installed and reachable on port 19633.</p>
-
+                  </label>
+                </div>
+              </template>
+              <p class="hint">Yomitan API must be installed and reachable on port 19633.</p>
             </section>
 
             <section class="section">
@@ -1515,7 +1564,7 @@
                   <span>Deck</span>
                   <select
                     :value="localSettings.deck"
-                    @change="(e) => localSettings.deck = (e.target as HTMLSelectElement).value"
+                    @change="(e) => (localSettings.deck = (e.target as HTMLSelectElement).value)"
                   >
                     <option value="">Select a deck…</option>
                     <option v-for="deck in deckNames" :key="deck" :value="deck">
@@ -1559,7 +1608,8 @@
                     <select
                       :value="localSettings.definitionField"
                       @change="
-                        (e) => onFieldChange('definitionField', (e.target as HTMLSelectElement).value)
+                        (e) =>
+                          onFieldChange('definitionField', (e.target as HTMLSelectElement).value)
                       "
                     >
                       <option value="">Don't add</option>
@@ -1604,7 +1654,8 @@
                     <select
                       :value="localSettings.wordAudioField"
                       @change="
-                        (e) => onFieldChange('wordAudioField', (e.target as HTMLSelectElement).value)
+                        (e) =>
+                          onFieldChange('wordAudioField', (e.target as HTMLSelectElement).value)
                       "
                     >
                       <option value="">Don't add</option>
@@ -1619,7 +1670,8 @@
                     <select
                       :value="localSettings.wordReadingField"
                       @change="
-                        (e) => onFieldChange('wordReadingField', (e.target as HTMLSelectElement).value)
+                        (e) =>
+                          onFieldChange('wordReadingField', (e.target as HTMLSelectElement).value)
                       "
                     >
                       <option value="">Don't add</option>
@@ -1651,9 +1703,17 @@
                       min="0"
                       step="0.1"
                       :value="localSettings.maxCardAgeMinutes"
-                      @input="(e) => onFieldChange('maxCardAgeMinutes', parseFloat((e.target as HTMLInputElement).value) || 0)"
+                      @input="
+                        (e) =>
+                          onFieldChange(
+                            'maxCardAgeMinutes',
+                            parseFloat((e.target as HTMLInputElement).value) || 0,
+                          )
+                      "
                     />
-                    <small class="field-hint">Prevent adding to cards older than this (0 for no limit).</small>
+                    <small class="field-hint"
+                      >Prevent adding to cards older than this (0 for no limit).</small
+                    >
                   </label>
                 </template>
                 <div v-if="loadingModels" class="muted-box">Loading note types…</div>
@@ -1665,10 +1725,7 @@
               <div class="section-header">
                 <h3>Media configuration</h3>
               </div>
-              <MediaConfiguration 
-                v-model="localMedia" 
-                :default-settings="defaultSettings"
-              />
+              <MediaConfiguration v-model="localMedia" :default-settings="defaultSettings" />
             </section>
           </div>
 
@@ -1703,9 +1760,12 @@
     </Teleport>
 
     <Teleport to="body">
-      <div class="defintions-popup" :class="{ hidden: !currentDefinitions || currentDefinitions.hidden || showSettings }">
+      <div
+        class="defintions-popup"
+        :class="{ hidden: !currentDefinitions || currentDefinitions.hidden || showSettings }"
+      >
         <div class="definitions-header" v-if="currentDefinitions">
-          <span class="definition-text">{{currentDefinitions.text}}</span>
+          <span class="definition-text">{{ currentDefinitions.text }}</span>
           <button class="btn close-btn" @click="dismissDefinitions">✕</button>
         </div>
         <div class="definition-entries" v-if="currentDefinitions">
@@ -1714,29 +1774,45 @@
           </div>
           <div class="definiton-entry" v-for="(entry, index) in currentDefinitions.entries">
             <div class="definition-expression">
-              <span class="jp-word">{{entry.expression}}<span class="reading">{{entry.reading}}</span></span>
-              <template v-for="note in [expressionNotes[entry.expression]].filter(n => n !== undefined)">
-                <button class="definition-btn loading-btn" v-if="note.status === 'loading'" disabled>
+              <span class="jp-word"
+                >{{ entry.expression }}<span class="reading">{{ entry.reading }}</span></span
+              >
+              <template
+                v-for="note in [expressionNotes[entry.expression]].filter((n) => n !== undefined)"
+              >
+                <button
+                  class="definition-btn loading-btn"
+                  v-if="note.status === 'loading'"
+                  disabled
+                >
                   <span class="loader"></span>
                 </button>
-                <button class="definition-btn error-btn" v-else-if="note.status === 'error'" disabled>
+                <button
+                  class="definition-btn error-btn"
+                  v-else-if="note.status === 'error'"
+                  disabled
+                >
                   🗙 Anki is unavailable
                 </button>
-                <button class="definition-btn clear-btn"
-                        v-else-if="note.status === 'found' && note.noteId"
-                        @click="anki.guiBrowse(`nid:${note.noteId}`)">
+                <button
+                  class="definition-btn clear-btn"
+                  v-else-if="note.status === 'found' && note.noteId"
+                  @click="anki.guiBrowse(`nid:${note.noteId}`)"
+                >
                   🔎 Browse note
                 </button>
-                <button class="definition-btn send-btn"
-                        v-else-if="GREEN_BUTTON_STATES.has(note.status)"
-                        :disabled="selectedMessages.size === 0 || note.status === 'adding'"
-                        @click="addNote(entry)">
+                <button
+                  class="definition-btn send-btn"
+                  v-else-if="GREEN_BUTTON_STATES.has(note.status)"
+                  :disabled="selectedMessages.size === 0 || note.status === 'adding'"
+                  @click="addNote(entry)"
+                >
                   📝 Add to Anki
                 </button>
               </template>
             </div>
             <div class="definition-content" v-html="entry.glossary" :ref="populateXRefs"></div>
-            <hr v-if="index < currentDefinitions.entries!!.length - 1"></hr>
+            <hr v-if="index < currentDefinitions.entries!!.length - 1" />
           </div>
         </div>
       </div>
@@ -1886,7 +1962,9 @@
     justify-content: center;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.2s ease, background 0.15s ease;
+    transition:
+      opacity 0.2s ease,
+      background 0.15s ease;
   }
 
   .btn-reset.visible {
@@ -2403,7 +2481,8 @@
     color: #a7b4c7;
   }
 
-  .jp-word .jp-token, .jp-word:has(> .reading) {
+  .jp-word .jp-token,
+  .jp-word:has(> .reading) {
     position: relative;
     white-space: nowrap;
   }
@@ -2417,18 +2496,21 @@
     white-space: nowrap;
     opacity: 0;
     visibility: hidden;
-    transition: opacity 0.38s cubic-bezier(0.23, 1, 0.32, 1), transform 0.42s cubic-bezier(0.2, 0.9, 0.3, 1.1), visibility 0.38s step-end;
+    transition:
+      opacity 0.38s cubic-bezier(0.23, 1, 0.32, 1),
+      transform 0.42s cubic-bezier(0.2, 0.9, 0.3, 1.1),
+      visibility 0.38s step-end;
     pointer-events: none;
   }
 
   .jp-word:hover .reading {
     opacity: 1;
     visibility: visible;
-    transform: translateX(-50%) translateY(-5px);   /* gentle lift + slide up */
-    transition: 
+    transform: translateX(-50%) translateY(-5px); /* gentle lift + slide up */
+    transition:
       opacity 0.38s cubic-bezier(0.23, 1, 0.32, 1),
-    transform 0.45s cubic-bezier(0.2, 0.9, 0.4, 1),
-    visibility 0.38s step-start;  /* become visible instantly at start */
+      transform 0.45s cubic-bezier(0.2, 0.9, 0.4, 1),
+      visibility 0.38s step-start; /* become visible instantly at start */
   }
 
   .defintions-popup {
@@ -2441,14 +2523,20 @@
     background: #1b2028;
     color: #e9edf2;
     box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
-    transition: opacity 0.25s ease, visibility 0.25s ease, transform 0.2s ease;
+    transition:
+      opacity 0.25s ease,
+      visibility 0.25s ease,
+      transform 0.2s ease;
     transform: translateY(0);
   }
 
   .defintions-popup.hidden {
     opacity: 0;
     visibility: hidden;
-    transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease;
+    transition:
+      opacity 0.2s ease,
+      visibility 0.2s ease,
+      transform 0.2s ease;
     transform: translateY(-8px);
     pointer-events: none;
   }
@@ -2502,7 +2590,7 @@
     100% {
       transform: rotate(360deg);
     }
-  } 
+  }
 
   .definition-entries hr {
     border: none;
@@ -2567,7 +2655,6 @@
     background: #ef5358;
   }
 
-
   @media (max-width: 640px) {
     .controls {
       width: 100%;
@@ -2591,7 +2678,7 @@
 </style>
 
 <style>
-.form-grid {
+  .form-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 16px;
@@ -2648,20 +2735,20 @@
     right: 0;
     bottom: 0;
     background-color: #1f252e;
-    transition: .3s;
+    transition: 0.3s;
     border-radius: 34px;
     border: 1px solid #2a303b;
   }
 
   .slider:before {
     position: absolute;
-    content: "";
+    content: '';
     height: 12px;
     width: 12px;
     left: 2px;
     bottom: 2px;
     background-color: #a7b4c7;
-    transition: .3s;
+    transition: 0.3s;
     border-radius: 50%;
   }
 
@@ -2676,22 +2763,22 @@
   }
 
   input[type='text'],
-    input[type='number'],
-    select {
-      width: 100%;
-      background: #11151b;
-      border: 1px solid #2a303a;
-      color: #e9edf2;
-      padding: 8px 10px;
-      border-radius: 6px;
-      font-size: 0.95em;
-      outline: none;
-      transition:
-        border-color 0.15s,
-        box-shadow 0.15s;
-      -moz-appearance: textfield;
-      appearance: none;
-    }
+  input[type='number'],
+  select {
+    width: 100%;
+    background: #11151b;
+    border: 1px solid #2a303a;
+    color: #e9edf2;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 0.95em;
+    outline: none;
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
+    -moz-appearance: textfield;
+    appearance: none;
+  }
 
   input::-webkit-outer-spin-button,
   input::-webkit-inner-spin-button {
@@ -2784,7 +2871,7 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
-  
+
   .field-hint {
     color: #7e8898;
     font-size: 0.85em;
@@ -2802,64 +2889,64 @@
     word-break: keep-all;
   }
 
-  span[data-sc-content="part-of-speech-info"] {
+  span[data-sc-content='part-of-speech-info'] {
     background-color: #3168a7;
   }
-  span[data-sc-content="misc-info"] {
+  span[data-sc-content='misc-info'] {
     background-color: #7e8898;
   }
 
-  div[data-sc-class="extra-box"] {
+  div[data-sc-class='extra-box'] {
     margin: 10px 5px;
     padding: 10px;
     box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
     border-radius: 8px;
   }
 
-  div[data-sc-content="example-sentence"] {
+  div[data-sc-content='example-sentence'] {
     background-color: #1c3028;
   }
 
-  div[data-sc-content="example-sentence"] rt {
+  div[data-sc-content='example-sentence'] rt {
     font-size: 0.8em;
   }
 
-  span[data-sc-content="example-keyword"] {
+  span[data-sc-content='example-keyword'] {
     color: #f4f142;
     font-weight: bold;
   }
 
-  div[data-sc-content="sense-note"] {
+  div[data-sc-content='sense-note'] {
     background-color: #30301c;
   }
 
-  div[data-sc-content="sense-note-label"] {
+  div[data-sc-content='sense-note-label'] {
     font-size: 1.1em;
     font-weight: bold;
     padding-bottom: 5px;
     border-bottom: 1px solid #4c4511;
   }
 
-  div[data-sc-content="xref"] {
+  div[data-sc-content='xref'] {
     background-color: #1e2638;
   }
 
-  span[data-sc-content="reference-label"] {
+  span[data-sc-content='reference-label'] {
     font-size: 1.1em;
     font-weight: bold;
     padding-bottom: 5px;
   }
 
-  div[data-sc-content="xref-content"] a {
+  div[data-sc-content='xref-content'] a {
     padding-left: 5px;
-    font-size: 1.0em;
+    font-size: 1em;
     color: #4c7fba;
 
     :hover {
       color: #7daee7;
     }
   }
-  
+
   .yomitan-glossary > ol {
     margin: 0;
     padding: 0px 10px 0px 30px;

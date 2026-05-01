@@ -46,4 +46,3 @@ export interface Settings {
   media: MediaSettings
   yomitan: YomitanSettings
 }
-
