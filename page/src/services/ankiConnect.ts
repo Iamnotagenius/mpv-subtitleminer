@@ -37,6 +37,11 @@ interface NoteInfo {
   fields: Record<string, { value: string; order: number }>
 }
 
+export interface FindResult {
+    id: number | null
+    error: string | null
+}
+
 class AnkiConnectError extends Error {
   constructor(message: string) {
     super(message)
@@ -214,7 +219,12 @@ export async function getDeckNames(): Promise<string[]> {
     return invoke<string[]>('deckNames')
 }
 
-export async function findWordCards(deckName: string, modelName: string, frontField: string, words: string[]): Promise<(number | null)[]> {
+export async function findWordCards(
+    deckName: string,
+    modelName: string,
+    frontField: string,
+    words: string[],
+): Promise<Record<string, FindResult>> {
     const actions: AnkiActionRequest[] = words.map(word => ({
         action: 'findNotes',
         version: API_VERSION,
@@ -223,11 +233,19 @@ export async function findWordCards(deckName: string, modelName: string, frontFi
         },
     }))
 
-    let results = await multiInvoke<number[]>(actions)
-    return results.map(result => result.result[0] ?? null)
+    const results = await multiInvoke<number[]>(actions)
+
+    return Object.fromEntries(words.map((word, i) => [word, {
+        id: results[i]?.result[0] ?? null,
+        error: results[i]?.error ?? null,
+    }]))
 }
 
-export async function addNote(deckName: string, modelName: string, fields: Record<string, string>): Promise<number> {
+export async function addNote(
+    deckName: string,
+    modelName: string,
+    fields: Record<string, string>,
+): Promise<number> {
   return invoke<number>('addNote', {
     note: {
       deckName,

@@ -36,6 +36,8 @@ export interface ConnectionSettings {
 
 export interface YomitanSettings {
   enabled: boolean
+  scanLength: number
+  maxEntries: number
 }
 
 export interface Settings {
