@@ -47,7 +47,7 @@ async function request<T>(path: string, body: Object = {}): Promise<T> {
 }
 
 export async function tokenize(text: string, scanLength: number): Promise<Word[]> {
-    let response = await request<TokenizeResponse[]>('tokenize', {
+    const response = await request<TokenizeResponse[]>('tokenize', {
         text,
         scanLength,
         parser: 'scanning-parser',
@@ -67,15 +67,15 @@ export interface AnkiFieldsResponse {
     fields: DictEntry[]
 }
 
-export async function definitions(text: string): Promise<DictEntry[]> {
-    let response = await request<AnkiFieldsResponse>('ankiFields', {
+export async function definitions(text: string, maxEntries: number): Promise<DictEntry[]> {
+    const response = await request<AnkiFieldsResponse>('ankiFields', {
         text,
         type: 'term',
         markers: ['glossary', 'reading', 'expression', 'conjugation'],
+        maxEntries,
         includeMedia: false,
     })
 
-    console.log(`[definitions]`, `Got ${response.fields.length} entries for ${text}`)
     return response.fields
 }
 
@@ -100,7 +100,7 @@ export interface WordAudio {
 }
 
 export async function audio(text: string): Promise<WordAudio | null> {
-    let response = await request<AudioFieldResponse>('ankiFields', {
+    const response = await request<AudioFieldResponse>('ankiFields', {
         text,
         type: 'term',
         markers: ['audio'],
@@ -125,7 +125,7 @@ export interface ServerVersionResponse {
 }
 
 export async function getServerVersion(): Promise<number> {
-    let response = await request<ServerVersionResponse>('serverVersion')
+    const response = await request<ServerVersionResponse>('serverVersion')
 
     return response.version
 }
@@ -135,7 +135,7 @@ export interface YomitanVersionResponse {
 }
 
 export async function getYomitanVersion(): Promise<string> {
-    let response = await request<YomitanVersionResponse>('yomitanVersion')
+    const response = await request<YomitanVersionResponse>('yomitanVersion')
 
     return response.version
 }

@@ -57,7 +57,11 @@
         metadataField: '',
         tags: ['mpv-subtitleminer'],
       },
-      yomitan: { enabled: false },
+    },
+    yomitan: {
+      enabled: false,
+      scanLength: 16,
+      maxEntries: 32,
     },
     connection: { host: '127.0.0.1', ports: [...DEFAULT_PORTS] },
     display: {
@@ -179,7 +183,8 @@
   const wordTagsInput = ref('')
   const sentenceTagsInput = ref('')
 
-  const yomitanAPIEnabled = ref<bool>(settings.value.yomitan.enabled)
+  const yomitanSettings = ref<YomitanSettings>({ ...settings.value.yomitan })
+  const yomitanAPIEnabled = computed(() => settings.value.yomitan.enabled)
 
   const modelNames = computed(() => Object.keys(modelsWithFields.value).sort())
   const fieldsFor = (noteType: string): string[] =>
@@ -202,11 +207,11 @@
       wordTagsInput.value = localSettings.value.word.tags.join(' ')
       sentenceTagsInput.value = localSettings.value.sentence.tags.join(' ')
 
-      yomitanAPIEnabled.value = settings.value.yomitan.enabled
+      yomitanSettings.value = settings.value.yomitan
       if (connectionStatus.value === 'untested') {
         void testConnection()
       }
-      if (yomitanAPIEnabled.value && yomitanServerVersionTestStatus.value === 'untested') {
+      if (yomitanSettings.value.enabled && yomitanServerVersionTestStatus.value === 'untested') {
         void testYomitanConnection()
       }
     }
@@ -233,7 +238,7 @@
   const yomitanServerVersionError = ref<string | null>(null)
   const yomitanVersionError = ref<string | null>(null)
 
-  watch(yomitanAPIEnabled, async (enabled) => {
+  watch(yomitanAPIEnabled, (enabled) => {
     if (enabled) {
       testYomitanConnection()
     }
@@ -394,6 +399,13 @@
     }
   }
 
+  function onYomitanChange(field: keyof YomitanSettings, value: string) {
+    const val = parseInt(value)
+    if (!isNaN(val)) {
+      yomitanSettings.value = { ...yomitanSettings.value, [field]: val }
+    }
+  }
+
   function saveSettings() {
     const mediaSettingsChanged =
       localMedia.value.audioOffsetStart !== settings.value.media.audioOffsetStart ||
@@ -419,7 +431,7 @@
     }
 
     settings.value.anki = cloneAnki(localSettings.value)
-    settings.value.yomitan = { enabled: yomitanAPIEnabled.value }
+    settings.value.yomitan = { ...yomitanSettings.value }
     settings.value.connection = { ...localConnection.value }
     settings.value.media = { ...localMedia.value }
     settings.value.display = { ...localDisplay.value }
@@ -986,8 +998,14 @@
         const msg = parseSubtitleMessage(d, port)
         if (!msg) return
         messages.value.push(msg)
-        if (yomitanAPIEnabled) {
-          tokenize(msg)
+        if (yomitanAPIEnabled.value) {
+          tokenize(msg).then(
+            words => msg.words = words,
+            err => {
+              toast.error(err instanceof Error ? err.message : 'Failed to tokenize')
+              msg.words = ([])
+            }
+          )
         }
         if (messages.value.length > 200) messages.value.shift()
         // Follow the newest subtitle (works whether playback advanced or seeked), rather than
@@ -1223,7 +1241,7 @@
   interface ExpressionNote {
     status: ExpressionNoteStatus
     noteId: number | null
-    error: string
+    error: string | null
   }
 
   const populateXRefs = (el: Element | ComponentPublicInstance | null) => {
@@ -1245,7 +1263,7 @@
           text += t.firstChild?.nodeValue
         }
       }
-      node.addEventListener('click', () => getDefinitions(text))
+      node.addEventListener('click', () => void getDefinitions(text) )
     })
   }
 
@@ -1256,41 +1274,46 @@
       text,
       hidden: false,
     }
-    currentDefinitions.value.entries = await yomitan.definitions(text)
-    const { deck, noteType, frontField } = settings.value.anki
-    if (currentDefinitions.value.entries === undefined) {
-      return
+    try {
+      currentDefinitions.value.entries = await yomitan.definitions(text, settings.value.yomitan.maxEntries)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to find note in Anki')
     }
-    const words = Array.from(new Set(currentDefinitions.value.entries.map(entry => entry.expression)))
-    words.forEach(word => expressionNotes.value[word] = {
+
+    if (currentDefinitions.value.entries) {
+      await findExpressionNotes(currentDefinitions.value.entries)
+    }
+  }
+
+  const findExpressionNotes = async (entries: yomitan.DictEntry[]) => {
+    const { deck, noteType, frontField } = settings.value.anki
+    const words = Array.from(new Set(entries.map(entry => entry.expression)))
+    expressionNotes.value = Object.fromEntries(words.map(word => [word, {
       status: 'loading',
       noteId: null,
-      error: '',
-    })
-    anki.findWordCards(deck, noteType, frontField, words).then(
-      ids => {
-        ids.forEach((id, index) => {
-          expressionNotes.value[words[index]!!] = {
-            status: id ? 'found' : 'notfound',
-            noteId: id,
-            error: '',
-          }
-        })
-      },
-      err => {
-        toast.error(err instanceof Error ? err.message : 'Failed to find note in Anki')
-        words.forEach(word => expressionNotes.value[word] = {
-          status: 'error',
-          noteId: null,
-          error: err,
-        })
-      }
-    )
+      error: null,
+    }]))
+    try {
+      const ids = await anki.findWordCards(deck, noteType, frontField, words)
+      expressionNotes.value = Object.fromEntries(Object.entries(ids).map(([word, result]) => [word, {
+        status: result.error ? 'error' : (result.id ? 'found' : 'notfound'),
+        noteId: result.id,
+        error: result.error,
+      }]))
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to find note in Anki'
+      toast.error(msg)
+      expressionNotes.value = Object.fromEntries(words.map(word => [word, {
+        status: 'error',
+        noteId: null,
+        error: msg,
+      }]))
+    }
   }
 
   const dismissDefinitions = () => {
     if (currentDefinitions.value) {
-        currentDefinitions.value.hidden = true
+      currentDefinitions.value.hidden = true
     }
   }
 
@@ -1763,7 +1786,9 @@
     ankiError.value[primaryKey] = ''
 
     try {
+      let toastId = toast.info('Requesting media from video...', {duration: 2000})
       const fields: Record<string, string> = await getFieldsFromSelection()
+      dismissToast(toastId)
 
       fields[frontField] = entry.expression
       if (definitionField) {
@@ -1773,16 +1798,28 @@
         fields[wordReadingField] = entry.reading
       }
       if (wordAudioField) {
-        const wordAudio = await yomitan.audio(entry.expression)
+        const toastId = toast.info('Requesting audio from yomitan...', {duration: 5000})
+        const wordAudio = await Promise.race([
+            yomitan.audio(entry.expression),
+            new Promise<null>((resolve) => {
+              setTimeout(
+                () => resolve(null),
+                5000,
+              )
+            }),
+        ])
         if (wordAudio) {
           fields[wordAudioField] = wordAudio.field
           await anki.storeMediaFile(wordAudio.filename, wordAudio.content)
         } else {
           toast.warning(`Unable to find pronounciation file for "${entry.expression}"`)
         }
+        dismissToast(toastId)
       }
 
+      toastId = toast.info('Adding the note...', {duration: 5000})
       const newNoteId = await anki.addNote(deck, noteType, fields)
+      dismissToast(toastId)
       expressionNotes.value[entry.expression] = {
         status: 'found',
         noteId: newNoteId,
@@ -1961,13 +1998,8 @@
 
   const tokenize = async (
     msg: SubtitleMessage
-  ): Promise<undefined> => {
-    try {
-      msg.words = await yomitan.tokenize(msg.subtitle, 5)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to tokenize')
-      msg.words = ([])
-    }
+  ): Promise<yomitan.Word[]> => {
+    return msg.words = await yomitan.tokenize(msg.subtitle, settings.value.yomitan.scanLength)
   }
 
 
@@ -2402,35 +2434,77 @@
                   </label>
                 </div>
               </div>
-              <template v-if="yomitanAPIEnabled">
-                <div class="connection-row">
-                  <span>Native Messaging Component</span>
-                  <span v-if="yomitanServerVersionTestStatus === 'connected'" class="status-pill success"
-                    >✓ Connected (v{{ yomitanServerVersion }})</span
-                  >
-                  <span
-                    v-else-if="yomitanServerVersionTestStatus== 'error'"
-                    class="status-pill error"
-                    :title="yomitanServerVersionError ?? ''"
-                    >✗ {{ yomitanServerVersionError }}</span
-                  >
-                  <span v-else class="status-pill">Not tested</span>
-                </div>
-                <div class="connection-row">
-                  <span>Yomitan</span>
-                  <span v-if="yomitanVersionTestStatus === 'connected'" class="status-pill success"
-                    >✓ Connected (v{{ yomitanVersion }})</span
-                  >
-                  <span
-                    v-else-if="yomitanVersionTestStatus== 'error'"
-                    class="status-pill error"
-                    :title="yomitanVersionError ?? ''"
-                    >✗ {{ yomitanVersionError }}</span
-                  >
-                  <span v-else class="status-pill">Not tested</span>
-                </div>
-                <p class="hint">Yomitan API must be installed and reachable on port 19633.</p>
-              </template>
+
+              <div class="connection-row">
+                <span>Native Messaging Component</span>
+                <span v-if="yomitanServerVersionTestStatus === 'connected'" class="status-pill success"
+                  >✓ Connected (v{{ yomitanServerVersion }})</span
+                >
+                <span
+                  v-else-if="yomitanServerVersionTestStatus== 'error'"
+                  class="status-pill error"
+                  :title="yomitanServerVersionError ?? ''"
+                  >✗ {{ yomitanServerVersionError }}</span
+                >
+                <span v-else class="status-pill">Not tested</span>
+              </div>
+                  <div class="connection-row">
+                    <span>Yomitan</span>
+                    <span v-if="yomitanVersionTestStatus === 'connected'" class="status-pill success"
+                      >✓ Connected (v{{ yomitanVersion }})</span
+                    >
+                    <span
+                      v-else-if="yomitanVersionTestStatus== 'error'"
+                      class="status-pill error"
+                      :title="yomitanVersionError ?? ''"
+                      >✗ {{ yomitanVersionError }}</span
+                    >
+                    <span v-else class="status-pill">Not tested</span>
+                  </div>
+                      <div class="form-grid">
+                        <label class="form-group">
+                          <span>Text scan length</span>
+                          <div class="input-group">
+                            <input
+                            type="number"
+                            :min="1"
+                            :value="yomitanSettings.scanLength"
+                            @input="e => onYomitanChange('scanLength', (e.target as HTMLInputElement).value)"
+                            />
+                            <button 
+                              class="btn-reset" 
+                              :class="{ visible: yomitanSettings.scanLength !== defaultSettings.yomitan.scanLength }"
+                              :title="`Reset to default (${defaultSettings.yomitan.scanLength})`"
+                              @click="yomitanSettings.scanLength = defaultSettings.yomitan.scanLength"
+                              >
+                              ↺
+                            </button>
+                          </div>
+                          <small class="field-hint">Change how many characters are read when scanning for terms.</small>
+                        </label>
+                        <label class="form-group">
+                          <span>Maximum number of results</span>
+                          <div class="input-group">
+                            <input
+                            type="number"
+                            :min="1"
+                            :value="yomitanSettings.maxEntries"
+                            @input="e => onYomitanChange('maxEntries', (e.target as HTMLInputElement).value)"
+                            />
+                            <button 
+                              class="btn-reset" 
+                              :class="{ visible: yomitanSettings.maxEntries !== defaultSettings.yomitan.maxEntries }"
+                              :title="`Reset to default (${defaultSettings.yomitan.maxEntries})`"
+                              @click="yomitanSettings.maxEntries = defaultSettings.yomitan.maxEntries"
+                              >
+                              ↺
+                            </button>
+                          </div>
+                          <small class="field-hint">Adjust the maximum number of results shown for lookups.</small>
+                        </label>
+                      </div>
+                      <p class="hint">Yomitan API must be installed and reachable on port 19633.</p>
+
             </section>
 
             <section class="section">
@@ -4363,6 +4437,30 @@
 </style>
 
 <style>
+.form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    align-items: baseline;
+  }
+
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .form-group span {
+    font-size: 0.85em;
+    font-weight: 500;
+    color: #a7b4c7;
+  }
+
+  .subtle {
+    font-weight: 400;
+    color: #7e8898;
+  }
+
   .advanced-toggle {
     display: flex;
     align-items: center;
@@ -4423,6 +4521,122 @@
     background-color: #3ddc97;
   }
 
+  input[type='text'],
+    input[type='number'],
+    select {
+      width: 100%;
+      background: #11151b;
+      border: 1px solid #2a303a;
+      color: #e9edf2;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 0.95em;
+      outline: none;
+      transition:
+        border-color 0.15s,
+        box-shadow 0.15s;
+      -moz-appearance: textfield;
+      appearance: none;
+    }
+
+  input::-webkit-outer-spin-button,
+  input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    appearance: none;
+    margin: 0;
+  }
+
+  input:focus,
+  select:focus {
+    border-color: #5a9aca;
+    box-shadow: 0 0 0 2px rgba(90, 154, 202, 0.2);
+  }
+
+  .input-group {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
+  .btn-reset {
+    position: absolute;
+    right: 8px;
+    background: none;
+    border: none;
+    color: #7e8898;
+    cursor: pointer;
+    font-size: 1.1em;
+    padding: 4px;
+    line-height: 1;
+    opacity: 0;
+    transition:
+      opacity 0.2s,
+      color 0.2s,
+      transform 0.2s;
+    border-radius: 4px;
+  }
+
+  .btn-reset:hover {
+    color: #ffd700;
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .btn-reset:active {
+    transform: scale(0.9);
+  }
+
+  .btn-reset.visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .full-width {
+    grid-column: 1 / -1;
+  }
+
+  .advanced-row-header {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    margin-bottom: 10px;
+  }
+
+  .extension-box {
+    width: 100px;
+  }
+
+  .animated-switch-box {
+    margin-top: 15px; /* Alignment with input labels */
+  }
+
+  .separator {
+    height: 1px;
+    background: #1f252e;
+    margin: 4px 0;
+  }
+
+  .section-subheader-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+    padding: 4px 0;
+  }
+
+  .section-label {
+    font-weight: 600;
+    color: #a7b4c7;
+    font-size: 0.9em;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  
+  .field-hint {
+    color: #7e8898;
+    font-size: 0.85em;
+    margin-top: -4px;
+    display: block;
+  }
   /* Glossary styling */
   span[data-sc-class='tag'] {
     border-radius: 0.3em;
