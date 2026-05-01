@@ -79,4 +79,3 @@ export interface Settings {
   display: DisplaySettings
   yomitan: YomitanSettings
 }
-
