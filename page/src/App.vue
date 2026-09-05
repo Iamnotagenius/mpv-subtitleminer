@@ -1824,11 +1824,15 @@
         fields[wordReadingField] = entry.reading
       }
       if (wordAudioField) {
+        const abort = new AbortController()
         const toastId = toast.info('Requesting audio from yomitan...', { duration: 5000 })
         const wordAudio = await Promise.race([
-          yomitan.audio(entry.expression),
+          yomitan.audio(entry.expression, abort.signal),
           new Promise<null>((resolve) => {
-            setTimeout(() => resolve(null), 5000)
+            setTimeout(() => {
+              abort.abort()
+              resolve(null)
+            }, 5000)
           }),
         ])
         if (wordAudio) {

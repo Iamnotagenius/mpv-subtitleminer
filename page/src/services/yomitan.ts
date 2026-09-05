@@ -20,12 +20,13 @@ export interface Token {
   reading?: string
 }
 
-async function request<T>(path: string, body: Object = {}): Promise<T> {
+async function request<T>(path: string, body: Object = {}, signal?: AbortSignal): Promise<T> {
   let response: Response
   try {
     response = await fetch(`${YOMITAN_API_URL}/${path}`, {
       method: 'POST',
       body: JSON.stringify(body),
+      signal,
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -67,14 +68,18 @@ export interface AnkiFieldsResponse {
   fields: DictEntry[]
 }
 
-export async function definitions(text: string, maxEntries: number): Promise<DictEntry[]> {
-  const response = await request<AnkiFieldsResponse>('ankiFields', {
-    text,
-    type: 'term',
-    markers: ['glossary', 'reading', 'expression', 'conjugation'],
-    maxEntries,
-    includeMedia: false,
-  })
+export async function definitions(text: string, maxEntries: number, signal?: AbortSignal): Promise<DictEntry[]> {
+  const response = await request<AnkiFieldsResponse>(
+    'ankiFields',
+    {
+      text,
+      type: 'term',
+      markers: ['glossary', 'reading', 'expression', 'conjugation'],
+      maxEntries,
+      includeMedia: false,
+    },
+    signal
+  )
 
   return response.fields
 }
@@ -99,14 +104,17 @@ export interface WordAudio {
   content: string
 }
 
-export async function audio(text: string): Promise<WordAudio | null> {
-  const response = await request<AudioFieldResponse>('ankiFields', {
-    text,
-    type: 'term',
-    markers: ['audio'],
-    maxEntries: 1,
-    includeMedia: true,
-  })
+export async function audio(text: string, signal?: AbortSignal): Promise<WordAudio | null> {
+  const response = await request<AudioFieldResponse>(
+    'ankiFields',
+    {
+      text,
+      type: 'term',
+      markers: ['audio'],
+      maxEntries: 1,
+      includeMedia: true,
+    },
+    signal)
 
   if (!response.fields[0] || !response.audioMedia[0]) {
     return null
