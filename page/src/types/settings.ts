@@ -64,6 +64,7 @@ export interface DisplaySettings {
   showSecondaryColumn: boolean
   timelineZoom: number
   primaryColumnFraction: number
+  secondaryColumnFraction: number
 }
 
 export interface YomitanSettings {

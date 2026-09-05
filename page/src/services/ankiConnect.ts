@@ -244,13 +244,6 @@ export async function guiBrowse(query: string): Promise<number[]> {
   return invoke<number[]>('guiBrowse', { query })
 }
 
-/**
- * Get all deck names
- */
-export async function getDeckNames(): Promise<string[]> {
-  return invoke<string[]>('deckNames')
-}
-
 export async function findWordCards(
   deckName: string,
   modelName: string,
@@ -276,23 +269,4 @@ export async function findWordCards(
       },
     ]),
   )
-}
-
-export async function addNote(
-  deckName: string,
-  modelName: string,
-  fields: Record<string, string>,
-): Promise<number> {
-  return invoke<number>('addNote', {
-    note: {
-      deckName,
-      modelName,
-      fields,
-      options: {
-        allowDuplicate: false,
-        duplicateScope: 'deck',
-      },
-      tags: ['mpv-subtitleminer'],
-    },
-  })
 }

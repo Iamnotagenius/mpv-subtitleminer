@@ -41,6 +41,7 @@
         frontField: '',
         definitionField: '',
         sentenceField: '',
+        secondaryField: '',
         audioField: '',
         wordAudioField: '',
         wordReadingField: '',
@@ -77,6 +78,7 @@
       showSecondaryColumn: true,
       timelineZoom: 80,
       primaryColumnFraction: 0.5,
+      secondaryColumnFraction: 0.2,
     },
     media: {
       audioOffsetStart: 0.25,
@@ -169,7 +171,6 @@
   const connectionStatus = ref<ConnectionStatus>('untested')
   const ankiVersion = ref<number | null>(null)
   const connectionError = ref<string | null>(null)
-  const deckNames = ref<string[]>([])
   const modelsWithFields = ref<Record<string, string[]>>({})
   const deckNamesList = ref<string[]>([])
   const loadingModels = ref(false)
@@ -323,7 +324,7 @@
   type FieldRow<K> = { key: K; label: string; emptyLabel: string; hint?: string }
 
   const wordFieldRows: FieldRow<
-    'frontField' | 'sentenceField' | 'secondaryField' | 'audioField' | 'imageField'
+    'frontField' | 'sentenceField' | 'secondaryField' | 'audioField' | 'imageField' | 'definitionField' | 'wordAudioField' | 'wordReadingField'
   >[] = [
     {
       key: 'frontField',
@@ -345,6 +346,9 @@
     },
     { key: 'audioField', label: 'Audio field', emptyLabel: "Don't update" },
     { key: 'imageField', label: 'Image field', emptyLabel: "Don't update" },
+    { key: 'definitionField', label: 'Definition field', emptyLabel: "Don't update" },
+    { key: 'wordAudioField', label: 'Word audio field', emptyLabel: "Don't update" },
+    { key: 'wordReadingField', label: 'Word reading field', emptyLabel: "Don't update" },
   ]
 
   const sentenceFieldRows: FieldRow<
@@ -459,10 +463,6 @@
   }
 
   type SubtitleTrack = 'primary' | 'secondary'
-  interface Word {
-    text: string
-    reading?: string
-  }
 
   interface SubtitleMessage {
     id: number
@@ -491,8 +491,6 @@
   const messages = ref<SubtitleMessage[]>([])
   const mainRef = ref<HTMLElement | null>(null)
   const currentDefinitions = ref<Definition | null>(null);
-  const bottomRef = ref<HTMLElement | null>(null)
-  const hoveredThumbnailUid = ref<string | null>(null)
   const loadingMedia = ref<Record<string, boolean>>({})
   // Floating screenshot preview: anchored to the hovered block's screenshot button. Rendered
   // via Teleport so it isn't clipped by the block's overflow. Shows once the thumbnail loads.
@@ -1276,7 +1274,13 @@
 
   const expressionNotes = ref<Record<string, ExpressionNote>>({})
 
-  const getDefinitions = async (text: string) => {
+  const getDefinitions = async (word: yomitan.Word | string) => {
+    let text = ""
+    if (typeof(word) === "string") {
+      text = word
+    } else {
+      text = word.tokens.map((t) => t.text).join('')
+    }
     currentDefinitions.value = {
       text,
       hidden: false,
@@ -1296,7 +1300,7 @@
   }
 
   const findExpressionNotes = async (entries: yomitan.DictEntry[]) => {
-    const { deck, noteType, frontField } = settings.value.anki
+    const { deck, noteType, frontField } = settings.value.anki.word
     const words = Array.from(new Set(entries.map((entry) => entry.expression)))
     expressionNotes.value = Object.fromEntries(
       words.map((word) => [
@@ -1634,7 +1638,7 @@
     const { first, last } = getSelectionRange() ?? {}
     if (!first || !last) return fieldUpdates
 
-    const { sentenceField, audioField, imageField } = settings.value.anki
+    const { sentenceField, audioField, imageField } = settings.value.anki.word
 
     if (sentenceField) {
       const text = selectedMsgs.map((m) => m.subtitle).join(' ')
@@ -1804,8 +1808,8 @@
     const { first, last } = getSelectionRange() ?? {}
     if (!first || !last) return
 
-    const { deck, noteType, frontField, definitionField, wordReadingField, wordAudioField } =
-      settings.value.anki
+    const { deck, noteType, frontField, definitionField, wordReadingField, wordAudioField, tags } =
+      settings.value.anki.word
 
     const primaryKey = first.uid
     sendingToAnki.value[primaryKey] = true
@@ -1845,7 +1849,7 @@
       }
 
       toastId = toast.info('Adding the note...', { duration: 5000 })
-      const newNoteId = await anki.addNote(deck, noteType, fields)
+      const newNoteId = await anki.addNote(deck, noteType, fields, tags)
       dismissToast(toastId)
       expressionNotes.value[entry.expression] = {
         status: 'found',
@@ -2051,6 +2055,7 @@
 
     <main ref="mainRef" class="main">
       <div v-if="messages.length === 0" class="empty">Waiting for subtitles...</div>
+      <div
         v-else
         class="timeline"
         :class="{ 'hide-secondary': !settings.display.showSecondaryColumn }"
@@ -2219,7 +2224,15 @@
               <span
                 class="tl-text"
                 :style="{ fontSize: settings.display.subtitleFontSize + '%' }"
-                >{{ cleanSentence(message.subtitle) }}</span
+                ><span v-if="message.words.length > 0" v-for="word in message.words" class="jp-word" @click.stop="getDefinitions(word)">
+                  <span v-for="token in word.tokens" class="jp-token">
+                  {{ cleanSentence(token.text) }}<span v-if="token.reading" class="reading">{{ token.reading }}</span>
+                  </span>
+                </span
+                ><span v-else>{{ cleanSentence(message.subtitle) }}<span
+                        v-if="yomitanAPIEnabled"
+                        class="loading hint">Tokenizing...</span
+                ></span></span
               >
               <div class="tl-actions">
                 <button
@@ -2312,7 +2325,11 @@
               <span
                 class="tl-text"
                 :style="{ fontSize: settings.display.secondaryFontSize + '%' }"
-                >{{ cleanSecondary(message.subtitle) }}</span
+                ><span v-if="message.words.length > 0" v-for="word in message.words" class="jp-word" @click.stop="getDefinitions(word)">
+                  <span v-for="token in word.tokens" class="jp-token">
+                  {{ cleanSecondary(token.text) }}<span v-if="token.reading" class="reading">{{ token.reading }}</span>
+                  </span>
+                </span><span v-else>{{ cleanSecondary(message.subtitle) }}</span></span
               >
             </div>
           </div>
@@ -2566,11 +2583,11 @@
                 <label class="form-group">
                   <span>Deck</span>
                   <select
-                    :value="localSettings.deck"
-                    @change="(e) => (localSettings.deck = (e.target as HTMLSelectElement).value)"
+                    :value="localSettings.word.deck"
+                    @change="(e) => (localSettings.word.deck = (e.target as HTMLSelectElement).value)"
                   >
                     <option value="">Select a deck…</option>
-                    <option v-for="deck in deckNames" :key="deck" :value="deck">
+                    <option v-for="deck in deckNamesList" :key="deck" :value="deck">
                       {{ deck }}
                     </option>
                   </select>
@@ -2602,149 +2619,6 @@
                     :hint="row.hint"
                     @update:model-value="(v: string) => onCardChange('word', row.key, v)"
                   />
-
-                  <label class="form-group">
-                    <span>Front field</span>
-                    <select
-                      :value="localSettings.frontField"
-                      @change="
-                        (e) => onFieldChange('frontField', (e.target as HTMLSelectElement).value)
-                      "
-                    >
-                      <option value="">Select…</option>
-                      <option v-for="field in availableFields" :key="field" :value="field">
-                        {{ field }}
-                      </option>
-                    </select>
-                    <small class="field-hint">Used to find the target card</small>
-                  </label>
-
-                  <label class="form-group">
-                    <span>Definition field</span>
-                    <select
-                      :value="localSettings.definitionField"
-                      @change="
-                        (e) =>
-                          onFieldChange('definitionField', (e.target as HTMLSelectElement).value)
-                      "
-                    >
-                      <option value="">Don't add</option>
-                      <option v-for="field in availableFields" :key="field" :value="field">
-                        {{ field }}
-                      </option>
-                    </select>
-                  </label>
-
-                  <label class="form-group">
-                    <span>Sentence field</span>
-                    <select
-                      :value="localSettings.sentenceField"
-                      @change="
-                        (e) => onFieldChange('sentenceField', (e.target as HTMLSelectElement).value)
-                      "
-                    >
-                      <option value="">Don't update</option>
-                      <option v-for="field in availableFields" :key="field" :value="field">
-                        {{ field }}
-                      </option>
-                    </select>
-                  </label>
-
-                  <label class="form-group">
-                    <span>Audio field</span>
-                    <select
-                      :value="localSettings.audioField"
-                      @change="
-                        (e) => onFieldChange('audioField', (e.target as HTMLSelectElement).value)
-                      "
-                    >
-                      <option value="">Don't update</option>
-                      <option v-for="field in availableFields" :key="field" :value="field">
-                        {{ field }}
-                      </option>
-                    </select>
-                  </label>
-
-                  <label class="form-group">
-                    <span>Word audio field</span>
-                    <select
-                      :value="localSettings.wordAudioField"
-                      @change="
-                        (e) =>
-                          onFieldChange('wordAudioField', (e.target as HTMLSelectElement).value)
-                      "
-                    >
-                      <option value="">Don't add</option>
-                      <option v-for="field in availableFields" :key="field" :value="field">
-                        {{ field }}
-                      </option>
-                    </select>
-                  </label>
-
-                  <label class="form-group">
-                    <span>Word reading field</span>
-                    <select
-                      :value="localSettings.wordReadingField"
-                      @change="
-                        (e) =>
-                          onFieldChange('wordReadingField', (e.target as HTMLSelectElement).value)
-                      "
-                    >
-                      <option value="">Don't add</option>
-                      <option v-for="field in availableFields" :key="field" :value="field">
-                        {{ field }}
-                      </option>
-                    </select>
-                  </label>
-
-                  <label class="form-group">
-                    <span>Image field</span>
-                    <select
-                      :value="localSettings.imageField"
-                      @change="
-                        (e) => onFieldChange('imageField', (e.target as HTMLSelectElement).value)
-                      "
-                    >
-                      <option value="">Don't update</option>
-                      <option v-for="field in availableFields" :key="field" :value="field">
-                        {{ field }}
-                      </option>
-                    </select>
-                  </label>
-
-                  <label class="form-group">
-                    <span>Max card age (minutes)</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.1"
-                      :value="localSettings.word.maxCardAgeMinutes"
-                      @input="
-                        (e) =>
-                          onCardChange(
-                            'word',
-                            'maxCardAgeMinutes',
-                            parseFloat((e.target as HTMLInputElement).value) || 0,
-                          )
-                      "
-                    />
-                    <small class="field-hint"
-                      >Prevent adding to cards older than this (0 for no limit).</small
-                    >
-                  </label>
-
-                  <label class="form-group">
-                    <span>Tags</span>
-                    <input
-                      type="text"
-                      :value="wordTagsInput"
-                      placeholder="mpv-subtitleminer"
-                      @input="(e) => updateCardTags('word', (e.target as HTMLInputElement).value)"
-                    />
-                    <small class="field-hint"
-                      >Space-separated tags added to word cards (leave blank for none).</small
-                    >
-                  </label>
                 </template>
                 <div v-if="loadingModels" class="muted-box">Loading note types…</div>
                 <div v-else-if="modelsError" class="error-text">{{ modelsError }}</div>
@@ -3817,6 +3691,7 @@
     line-height: 1.45;
     white-space: pre-wrap;
     word-break: break-word;
+    margin-top: 0.8em;
   }
 
   .tl-block.secondary .tl-text {
@@ -4259,6 +4134,13 @@
 
   .toast-move {
     transition: transform 0.2s ease;
+  }
+
+  .tl-text .loading {
+    position: absolute;
+    top: 0.1em;
+    left: 9px;
+    font-size: 0.8em;
   }
 
   .jp-word {
