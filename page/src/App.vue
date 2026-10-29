@@ -3688,10 +3688,10 @@
   .tl-text {
     flex: 1 1 auto;
     min-width: 0;
-    line-height: 1.45;
+    line-height: 2em;
     white-space: pre-wrap;
     word-break: break-word;
-    margin-top: 0.8em;
+    margin-top: 0.2em;
   }
 
   .tl-block.secondary .tl-text {
@@ -4144,7 +4144,7 @@
   }
 
   .jp-word {
-    white-space: nowrap;
+    white-space: collapse;
   }
   .jp-word:hover {
     color: #a7b4c7;
@@ -4160,7 +4160,7 @@
     position: absolute;
     bottom: 76%;
     left: 50%;
-    transform: translateX(-50%) translateY(0);
+    transform: translateX(-50%) translateY(1em);
     font-size: 0.8em;
     white-space: nowrap;
     opacity: 0;
@@ -4175,7 +4175,7 @@
   .jp-word:hover .reading {
     opacity: 1;
     visibility: visible;
-    transform: translateX(-50%) translateY(-5px); /* gentle lift + slide up */
+    transform: translateX(-50%) translateY(0.45em); /* gentle lift + slide up */
     transition:
       opacity 0.38s cubic-bezier(0.23, 1, 0.32, 1),
       transform 0.45s cubic-bezier(0.2, 0.9, 0.4, 1),
