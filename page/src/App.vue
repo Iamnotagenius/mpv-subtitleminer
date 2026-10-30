@@ -4199,7 +4199,6 @@
     position: fixed;
     inset: 0;
     z-index: 50;
-    background: rgba(0, 0, 0, 0.3);
     pointer-events: none;
   }
 
