@@ -2918,13 +2918,18 @@
     </Teleport>
 
     <Teleport to="body">
-      <div
-        v-if="definitionsVisible"
-        class="definitions-overlay"
-        :class="{ open: definitionsVisible }"
-        @click.self="dismissDefinitions"
-      >
-        <div class="definitions-curtain">
+      <Transition name="backdrop">
+        <div
+          v-if="definitionsVisible"
+          class="definitions-overlay"
+          @click.self="dismissDefinitions"
+        ></div>
+      </Transition>
+      <Transition name="curtain">
+        <div
+          v-if="definitionsVisible"
+          class="definitions-curtain"
+        >
           <div class="definitions-header" v-if="currentDefinitions">
             <span class="definition-text">{{ currentDefinitions.text }}</span>
             <button class="btn close-btn" @click="dismissDefinitions">×</button>
@@ -2977,7 +2982,7 @@
           </div>
         </div>
         </div>
-      </div>
+      </Transition>
     </Teleport>
   </div>
 </template>
@@ -4194,20 +4199,10 @@
     inset: 0;
     z-index: 50;
     background: rgba(0, 0, 0, 0.3);
-    opacity: 0;
-    visibility: hidden;
-    transition:
-      opacity 0.3s ease,
-      visibility 0.3s ease;
-  }
-
-  .definitions-overlay.open {
-    opacity: 1;
-    visibility: visible;
   }
 
   .definitions-curtain {
-    position: absolute;
+    position: fixed;
     top: 0;
     right: 0;
     bottom: 0;
@@ -4215,14 +4210,46 @@
     background: #1b2028;
     color: #e9edf2;
     box-shadow: -4px 0 24px rgba(0, 0, 0, 0.4);
-    transform: translateX(100%);
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     flex-direction: column;
+    z-index: 51;
   }
 
-  .definitions-overlay.open .definitions-curtain {
+  .backdrop-enter-active {
+    transition: opacity 0.3s ease;
+  }
+
+  .backdrop-leave-active {
+    transition: opacity 0.2s ease;
+  }
+
+  .backdrop-enter-from,
+  .backdrop-leave-to {
+    opacity: 0;
+  }
+
+  .curtain-enter-active {
+    transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .curtain-leave-active {
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .curtain-enter-from {
+    transform: translateX(100%);
+  }
+
+  .curtain-enter-to {
     transform: translateX(0);
+  }
+
+  .curtain-leave-from {
+    transform: translateX(0);
+  }
+
+  .curtain-leave-to {
+    transform: translateX(100%);
   }
 
   .definitions-header {
