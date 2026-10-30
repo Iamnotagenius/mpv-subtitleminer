@@ -2922,19 +2922,20 @@
         <div
           v-if="definitionsVisible"
           class="definitions-overlay"
-          @click.self="dismissDefinitions"
+          @click="dismissDefinitions"
         ></div>
       </Transition>
       <Transition name="curtain">
         <div
           v-if="definitionsVisible"
           class="definitions-curtain"
+          @click="dismissDefinitions"
         >
-          <div class="definitions-header" v-if="currentDefinitions">
+          <div class="definitions-header" v-if="currentDefinitions" style="pointer-events: auto">
             <span class="definition-text">{{ currentDefinitions.text }}</span>
-            <button class="btn close-btn" @click="dismissDefinitions">×</button>
+            <button class="btn close-btn" @click.stop="dismissDefinitions">×</button>
           </div>
-        <div class="definition-entries" v-if="currentDefinitions">
+        <div class="definition-entries" v-if="currentDefinitions" @click.stop style="pointer-events: auto">
           <div class="loading" v-if="!currentDefinitions.entries">
             <span class="loader"></span>
           </div>
@@ -4199,6 +4200,7 @@
     inset: 0;
     z-index: 50;
     background: rgba(0, 0, 0, 0.3);
+    pointer-events: none;
   }
 
   .definitions-curtain {
@@ -4213,6 +4215,7 @@
     display: flex;
     flex-direction: column;
     z-index: 51;
+    pointer-events: auto;
   }
 
   .backdrop-enter-active {
