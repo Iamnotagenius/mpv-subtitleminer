@@ -491,6 +491,7 @@
   const messages = ref<SubtitleMessage[]>([])
   const mainRef = ref<HTMLElement | null>(null)
   const currentDefinitions = ref<Definition | null>(null);
+  const definitionsVisible = ref(false);
   const loadingMedia = ref<Record<string, boolean>>({})
   // Floating screenshot preview: anchored to the hovered block's screenshot button. Rendered
   // via Teleport so it isn't clipped by the block's overflow. Shows once the thumbnail loads.
@@ -1285,6 +1286,7 @@
       text,
       hidden: false,
     }
+    definitionsVisible.value = true
     try {
       currentDefinitions.value.entries = await yomitan.definitions(
         text,
@@ -1344,6 +1346,7 @@
     if (currentDefinitions.value) {
       currentDefinitions.value.hidden = true
     }
+    definitionsVisible.value = false
   }
 
   watch(
@@ -2916,13 +2919,16 @@
 
     <Teleport to="body">
       <div
-        class="defintions-popup"
-        :class="{ hidden: !currentDefinitions || currentDefinitions.hidden || showSettings }"
+        v-if="definitionsVisible"
+        class="definitions-overlay"
+        :class="{ open: definitionsVisible }"
+        @click.self="dismissDefinitions"
       >
-        <div class="definitions-header" v-if="currentDefinitions">
-          <span class="definition-text">{{ currentDefinitions.text }}</span>
-          <button class="btn close-btn" @click="dismissDefinitions">✕</button>
-        </div>
+        <div class="definitions-curtain">
+          <div class="definitions-header" v-if="currentDefinitions">
+            <span class="definition-text">{{ currentDefinitions.text }}</span>
+            <button class="btn close-btn" @click="dismissDefinitions">×</button>
+          </div>
         <div class="definition-entries" v-if="currentDefinitions">
           <div class="loading" v-if="!currentDefinitions.entries">
             <span class="loader"></span>
@@ -2969,6 +2975,7 @@
             <div class="definition-content" v-html="entry.glossary" :ref="populateXRefs"></div>
             <hr v-if="index < currentDefinitions.entries!!.length - 1" />
           </div>
+        </div>
         </div>
       </div>
     </Teleport>
@@ -4182,40 +4189,49 @@
       visibility 0.38s step-start; /* become visible instantly at start */
   }
 
-  .defintions-popup {
+  .definitions-overlay {
     position: fixed;
+    inset: 0;
     z-index: 50;
-    top: 90px;
-    right: 20px;
-    width: 320px;
-    border-radius: 8px;
-    background: #1b2028;
-    color: #e9edf2;
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
-    transition:
-      opacity 0.25s ease,
-      visibility 0.25s ease,
-      transform 0.2s ease;
-    transform: translateY(0);
-  }
-
-  .defintions-popup.hidden {
+    background: rgba(0, 0, 0, 0.3);
     opacity: 0;
     visibility: hidden;
     transition:
-      opacity 0.2s ease,
-      visibility 0.2s ease,
-      transform 0.2s ease;
-    transform: translateY(-8px);
-    pointer-events: none;
+      opacity 0.3s ease,
+      visibility 0.3s ease;
+  }
+
+  .definitions-overlay.open {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .definitions-curtain {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(420px, 90vw);
+    background: #1b2028;
+    color: #e9edf2;
+    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.4);
+    transform: translateX(100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .definitions-overlay.open .definitions-curtain {
+    transform: translateX(0);
   }
 
   .definitions-header {
     background: #2c343f;
-    border-radius: 8px 8px 0 0;
-    padding: 10px;
+    padding: 16px;
     display: flex;
     justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
   }
 
   .definition-text {
@@ -4224,7 +4240,7 @@
 
   .definition-entries {
     overflow-y: auto;
-    max-height: 500px;
+    flex: 1;
   }
 
   .definition-entries .loading {
